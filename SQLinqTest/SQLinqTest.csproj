@@ -56,6 +56,7 @@
     <Compile Include="Car.cs" />
     <Compile Include="Compiler\SqlExpressionCompilerTest.cs" />
     <Compile Include="GenericTypeTestClass.cs" />
+    <Compile Include="ProxyFilters.cs" />
     <Compile Include="SQLinqCollectionTest.cs" />
     <Compile Include="SQLinqIfTest.cs" />
     <Compile Include="SQLinqUpdateTest.cs" />

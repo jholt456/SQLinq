@@ -5,6 +5,7 @@
 using SQLinq.Compiler;
 using SQLinq.Dynamic;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -156,7 +157,7 @@ namespace SQLinq
     /// Allows for Ad-Hoc SQL queries to be generated using LINQ in a stongly type manner, while also taking advantage of compile time validation.
     /// </summary>
     /// <typeparam name="T">The Type that contains a strongly typed reference of the scheme for the database table/view to be queried.</typeparam>
-    public class SQLinq<T> : ITypedSqlLinq
+    public class SQLinq<T> : ITypedSqlLinq, IQueryable<T>, IQueryProvider, IOrderedQueryable<T>
     {
         /// <summary>
         /// Creates a new SQLinq object
@@ -501,9 +502,21 @@ namespace SQLinq
         private SqlExpressionCompilerResult ToSQL_Where(int parameterNumber, string parameterNamePrefix, IDictionary<string, object> parameters)
         {
             SqlExpressionCompilerResult whereResult = null;
-            if (this.Expressions.Count > 0)
+
+            //hoist wheres
+            ITypedSqlLinq current = this;
+            var childExpressions = new List<Expression>();
+
+            while (current != null)
             {
-                whereResult = SqlExpressionCompiler.Compile(this.Dialect, parameterNumber, parameterNamePrefix, this.Expressions, this.JoinExpressions.Any());
+                childExpressions.AddRange(current.Expressions);
+
+                current = current.Parent;
+            }
+
+            if (childExpressions.Count > 0)
+            {
+                whereResult = SqlExpressionCompiler.Compile(this.Dialect, parameterNumber, parameterNamePrefix, childExpressions, this.JoinExpressions.Any());
                 foreach (var item in whereResult.Parameters)
                 {
                     parameters.Add(item.Key, item.Value);
@@ -514,7 +527,16 @@ namespace SQLinq
 
         private SqlExpressionCompilerSelectorResult ToSQL_Select(int parameterNumber, string parameterNamePrefix, IDictionary<string, object> parameters)
         {
-            var selectResult = SqlExpressionCompiler.CompileSelector(this.Dialect, parameterNumber, parameterNamePrefix, this.Selector, this.JoinExpressions.Any());
+            //hoist selects
+            ITypedSqlLinq current = this;
+            Expression selector = null;
+            while (selector == null && current != null)
+            {
+                selector = (Expression)current.GetType().GetProperty("Selector").GetValue(current, null);
+                current = current.Parent;
+            }
+
+            var selectResult = SqlExpressionCompiler.CompileSelector(this.Dialect, parameterNumber, parameterNamePrefix, selector, this.JoinExpressions.Any());
 
            
             foreach (var item in selectResult.Parameters)
@@ -553,9 +575,32 @@ namespace SQLinq
         {
             var orderbyResult = new SqlExpressionCompilerSelectorResult();
 
-            for (var i = 0; i < this.OrderByExpressions.Count; i++)
+            //hoist selects
+            ITypedSqlLinq current = this;
+            ICollection parentOrderBys = null;
+            while (parentOrderBys == null && current != null)
             {
-                var r = SqlExpressionCompiler.CompileSelector(this.Dialect, parameterNumber, parameterNamePrefix, this.OrderByExpressions[i].Expression, this.JoinExpressions.Any());
+                parentOrderBys = (ICollection)current.GetType().GetProperty("OrderByExpressions").GetValue(current, null);
+
+                if (parentOrderBys.Count == 0)
+                {
+                    current = current.Parent;
+                    parentOrderBys = null;
+                }
+            }
+
+
+            var orderBys = this.OrderByExpressions.Select(o=>Tuple.Create((Expression)o.Expression, o.Ascending)).ToList();
+
+            if (parentOrderBys != null)
+            {
+                orderBys = parentOrderBys.Cast<dynamic>().Select(o => Tuple.Create((Expression) o.Expression, o.Ascending)).Cast<Tuple<Expression, bool>>().ToList();
+            }
+
+
+            for (var i = 0; i < orderBys.Count; i++)
+            {
+                var r = SqlExpressionCompiler.CompileSelector(this.Dialect, parameterNumber, parameterNamePrefix, orderBys[i].Item1, this.JoinExpressions.Any());
                 foreach (var s in r.Select)
                 {
                     orderbyResult.Select.Add(s);
@@ -569,9 +614,9 @@ namespace SQLinq
             {
                 parameters.Add(item.Key, item.Value);
             }
-            for (var i = 0; i < this.OrderByExpressions.Count; i++)
+            for (var i = 0; i < orderBys.Count; i++)
             {
-                if (!this.OrderByExpressions[i].Ascending)
+                if (!orderBys[i].Item2)
                 {
                     orderbyResult.Select[i] = orderbyResult.Select[i] + " DESC";
                 }
@@ -580,9 +625,121 @@ namespace SQLinq
             return orderbyResult;
         }
 
+        private Expression _expression = null;
+
         public SqlExpressionCompilerSelectorResult ProcessJoinExpression(Expression exp, string parameterNamePrefix, IDictionary<string, object> parameters)
         {
             return SqlExpressionCompiler.CompileSelector(this.Dialect, parameters.Count, parameterNamePrefix, exp, true);
         }
-    }
+
+        public IEnumerator<T> GetEnumerator()
+        {
+            return (this as IQueryable).Provider.Execute<IEnumerator<T>>(_expression);
+        }
+
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return (IEnumerator<T>) (this as IQueryable).GetEnumerator();
+        }
+
+        public Type ElementType
+        {
+            get { return typeof(T); }
+        }
+
+        public Expression Expression
+        {
+            get { return Expression.Constant(this); }
+        }
+
+        public IQueryProvider Provider
+        {
+            get { return this; }
+        }
+
+        public IQueryable CreateQuery(Expression expression)
+        {
+            return (IQueryable<T>)(this as IQueryProvider).CreateQuery<T>(expression);
+        }
+
+        public IQueryable<TElement> CreateQuery<TElement>(Expression expression)
+        {
+            if (expression.NodeType == ExpressionType.Call)
+            {
+                var exp = ((MethodCallExpression) expression);
+
+                var method = exp.Method.Name.ToLower();
+
+                if (method.Equals("where"))
+                {
+                    this.Where(expression);
+                }
+                else if (method.Equals("select"))
+                {
+                    var result = new SQLinq<TElement>(this.TableNameOverride, this.Dialect) { Parent = this };
+                    var quote = ((UnaryExpression) exp.Arguments[1]);
+                    var lambda = ((LambdaExpression) quote.Operand);
+                    this.Selector = Expression.Lambda<Func<T, object>>(lambda, lambda.Name, lambda.TailCall, lambda.Parameters );
+                    return result;
+                }
+                else if (method.Equals("orderby"))
+                {
+                    var quote = ((UnaryExpression)exp.Arguments[1]);
+                    var lambda = ((LambdaExpression)quote.Operand);
+                    var ordered = Expression.Lambda<Func<T, object>>(lambda, lambda.Name, lambda.TailCall, lambda.Parameters);
+
+                    this.OrderBy(ordered);
+                }
+                else if (method.Equals("orderbydescending"))
+                {
+                    var quote = ((UnaryExpression)exp.Arguments[1]);
+                    var lambda = ((LambdaExpression)quote.Operand);
+                    var ordered = Expression.Lambda<Func<T, object>>(lambda, lambda.Name, lambda.TailCall, lambda.Parameters);
+
+                    this.OrderByDescending(ordered);
+                }
+                else if (method.Equals("thenby"))
+                {
+                    var quote = ((UnaryExpression)exp.Arguments[1]);
+                    var lambda = ((LambdaExpression)quote.Operand);
+                    var ordered = Expression.Lambda<Func<T, object>>(lambda, lambda.Name, lambda.TailCall, lambda.Parameters);
+
+                    this.ThenBy(ordered);
+                }
+                else if (method.Equals("thenbydescending"))
+                {
+                    var quote = ((UnaryExpression)exp.Arguments[1]);
+                    var lambda = ((LambdaExpression)quote.Operand);
+                    var ordered = Expression.Lambda<Func<T, object>>(lambda, lambda.Name, lambda.TailCall, lambda.Parameters);
+
+                    this.ThenByDescending(ordered);
+                }
+            }
+            else
+            {
+                if (!typeof(TElement).Equals(typeof(T)))
+                {
+                    throw new Exception("Only " + typeof(T).FullName + " objects are supported. The query expression is of type " + typeof(TElement).FullName);
+                }
+            }
+
+            return (IQueryable<TElement>)this;
+        }
+
+        public object Execute(Expression expression)
+        {
+            return (this as IQueryProvider).Execute<IEnumerator<T>>(expression);
+        }
+
+        public TResult Execute<TResult>(Expression expression)
+        {
+            //just allows toList to be called without bombing
+
+            var type = typeof(TResult).GetGenericArguments()[0];
+            var listType = typeof(List<>).MakeGenericType(type);
+            var list = (IEnumerable)Activator.CreateInstance(listType);
+            return (TResult) list.GetEnumerator();
+        }
+
+        }
 }

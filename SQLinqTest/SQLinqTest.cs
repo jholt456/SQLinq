@@ -2283,6 +2283,90 @@ namespace SQLinqTest
             Assert.IsTrue(test.SequenceEqual((IEnumerable<int>)result.Parameters.ElementAt(0).Value));
             Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
         }
+        #endregion
+
+        #region Queryable 
+        [TestMethod]
+        public void Queryable_001()
+        {
+            var person = new SQLinq<Person>();
+
+            var proxy = ProxyFilters.Apply(person);
+
+            proxy.Where(x => x.IsEmployed == true);
+
+            var result = (SQLinqSelectResult)person.ToSQL();
+
+            Assert.AreEqual("[Is_Employed] = @sqlinq_1", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+        }
+
+        [TestMethod]
+        public void Queryable_002()
+        {
+            var person = new SQLinq<Person>();
+
+            var proxy = ProxyFilters.Apply(person);
+
+             var final = (ITypedSqlLinq)proxy.Select(x => x).Where(x => x.IsEmployed == true).Where(x=>x.Age ==2).OrderBy(x=>x.FirstName);
+
+            var result = (SQLinqSelectResult)final.ToSQL();
+
+            Assert.AreEqual(7, result.Select.Length);
+            Assert.AreEqual("[FirstName]", result.Select[1]);
+            Assert.AreEqual("[Is_Employed] = @sqlinq_1 AND [Age] = @sqlinq_2", result.Where);
+            Assert.AreEqual("[FirstName]", result.OrderBy[0]);
+            Assert.AreEqual(2, result.Parameters.Count);
+        }
+
+        [TestMethod]
+        public void Queryable_003()
+        {
+            var person = new SQLinq<Person>();
+
+            var proxy = ProxyFilters.Apply(person);
+
+            var result = proxy.Where(x => x.IsEmployed == true).Select(x => x.FirstName).ToList();
+
+            Assert.IsNotNull(result);
+        }
+
+
+        [TestMethod]
+        public void Queryable_004()
+        {
+            var person = new SQLinq<Person>();
+
+            var proxy = ProxyFilters.Apply(person);
+
+            var final = (ITypedSqlLinq)proxy.Where(x => x.IsEmployed == true).Where(x => x.Age == 2).OrderBy(x => x.FirstName).Select(x => new { x.FirstName, x.IsEmployed, x.Age });
+
+            var result = (SQLinqSelectResult)final.ToSQL();
+
+            Assert.AreEqual(3, result.Select.Length);
+            Assert.AreEqual("[FirstName]", result.Select[0]);
+            Assert.AreEqual("[Is_Employed] AS [IsEmployed]", result.Select[1]);
+            Assert.AreEqual("[Age]", result.Select[2]);
+            Assert.AreEqual("[Is_Employed] = @sqlinq_1 AND [Age] = @sqlinq_2", result.Where);
+            Assert.AreEqual(1, result.OrderBy.Length);
+            Assert.AreEqual("[FirstName]", result.OrderBy[0]);
+            Assert.AreEqual(2, result.Parameters.Count);
+        }
+
+        [TestMethod]
+        public void Queryable_005()
+        {
+            var person = new SQLinq<Person>();
+
+            var proxy = ProxyFilters.Apply(person);
+
+            var final = (ITypedSqlLinq) proxy.WithName("Test");
+
+            var result = (SQLinqSelectResult)final.ToSQL();
+
+            Assert.AreEqual(7, result.Select.Length);
+            Assert.AreEqual("[FirstName] = @sqlinq_1", result.Where);
+        }
 
 
         #endregion

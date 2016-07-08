@@ -356,19 +356,33 @@ namespace SQLinq.Compiler
             }
             else if ( (method.DeclaringType == typeof(Enumerable) || 
                         method.DeclaringType == typeof(Queryable)) &&
-                        e.Arguments.Count == 2 && 
-                        e.Arguments[1].NodeType == ExpressionType.MemberAccess)
+                        e.Arguments.Count == 2)
             {
                 string parameterName = null;
                
-                parameterName = GetExpressionValue(dialect, rootExpression, e.Arguments[0], parameters, getParameterName);
-                  
-                var dyn = (dynamic)e.Arguments[1];
-                var member = (MemberInfo) (dyn).Member;
-                memberName = GetMemberColumnName(member, dialect);
-                memberName = GetAliasedColumnName(dialect, dyn, memberName, aliasRequired);
+              
 
-                return string.Format("{0} IN ({1})", memberName, parameterName);
+                if (e.Arguments[1].NodeType == ExpressionType.MemberAccess)
+                {
+                    parameterName = GetExpressionValue(dialect, rootExpression, e.Arguments[0], parameters, getParameterName);
+                    var dyn = (dynamic) e.Arguments[1];
+                    var member = (MemberInfo) (dyn).Member;
+                    memberName = GetMemberColumnName(member, dialect);
+                    memberName = GetAliasedColumnName(dialect, dyn, memberName, aliasRequired);
+
+                    return string.Format("{0} IN ({1})", memberName, parameterName);
+                }
+                else if (e.Arguments[1].NodeType == ExpressionType.Quote)
+                {
+                    //this is used when building expressions from IQueryables
+                    var result = ProcessExpression(dialect, rootExpression, ((UnaryExpression) e.Arguments[1]).Operand, parameters, getParameterName, aliasRequired);
+
+                    return result;
+                }
+                else
+                {
+                    throw new Exception("Unsupported Queryble Node Type (" + e.Arguments[1].NodeType + ")");
+                }
             }
             else if ((typeof(IEnumerable).IsAssignableFrom(method.DeclaringType) ||
                      typeof(ICollection).IsAssignableFrom(method.DeclaringType)) &&
