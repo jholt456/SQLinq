@@ -8,7 +8,7 @@ namespace SQLinq
     {
         object ConvertParameterValue(object value);
         string ParameterPrefix { get; }
-        string ParseTableName(string tableName);
+        string ParseTableName(string tableName, string alias = null);
         string ParseColumnName(string columnName);
         void AssertSkip<T>(SQLinq<T> sqLinq);
         string ToQuery(SQLinqSelectResult selectResult);

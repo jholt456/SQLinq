@@ -67,6 +67,8 @@
     <Compile Include="ISQLinqIf.cs" />
     <Compile Include="ISQLinqInsert.cs" />
     <Compile Include="ISQLinqUpdate.cs" />
+    <Compile Include="ISQLinqTypedJoinExpression.cs" />
+    <Compile Include="ITypedSqlLinq.cs" />
     <Compile Include="SQLinqCollection.cs" />
     <Compile Include="SQLinqCollectionResult.cs" />
     <Compile Include="SQLinqCount.cs" />
@@ -94,8 +96,10 @@
     <Compile Include="SQLinqSelectResult.cs" />
     <Compile Include="SQLinqSubQueryAttribute.cs" />
     <Compile Include="SQLinqTableAttribute.cs" />
+    <Compile Include="SQLinqTypedJoinResult.cs" />
     <Compile Include="SQLinqUpdate.cs" />
     <Compile Include="SQLinqUpdateResult.cs" />
+    <Compile Include="SQLinqJoin.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="SQLinqKey.snk" />

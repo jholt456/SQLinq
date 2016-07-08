@@ -2073,38 +2073,170 @@ namespace SQLinqTest
         }
 
         #endregion
-        //#region Table Joins
+        #region Table Joins
 
-        //[TestMethod]
-        //public void SQLinqTest_Join_001()
-        //{
-        //    var query = from p in new SQLinq<Person>()
-        //                join parent in new SQLinq<ParentPerson>() on p.ParentID equals parent.ID
-        //                select new
-        //                {
-        //                    Id = p.ID,
-        //                    FirstName = p.FirstName,
-        //                    LastName = p.LastName,
-        //                    ParentFirstName = parent.FirstName,
-        //                    ParentLastName = parent.LastName
-        //                };
+        [TestMethod]
+        public void SQLinqTest_Join_001()
+        {
+            var query = from p in new SQLinq<Person>()
+                        join parent in new SQLinq<ParentPerson>() on p.ParentID equals parent.ID
+                        select new
+                        {
+                            Id = p.ID,
+                            FirstName = p.FirstName,
+                            LastName = p.LastName,
+                            ParentFirstName = parent.FirstName,
+                            ParentLastName = parent.LastName
+                        };
 
-        //    var result = query.ToSQL();
+            var result = (SQLinqSelectResult) query.ToSQL();
 
-        //    Assert.AreEqual("[Person] AS [p]", result.Table);
+            Assert.AreEqual("[Person] AS [p]", result.Table);
 
-        //    Assert.AreEqual(1, result.Join.Length);
-        //    Assert.AreEqual("JOIN [ParentPerson] AS [parent] ON [p].[ParentID] = [parent].[ID]", result.Join[0]);
+            Assert.AreEqual(1, result.Join.Length);
+            Assert.AreEqual("JOIN [ParentPerson] AS [parent] ON [p].[ParentID] = [parent].[ID]", result.Join[0]);
 
-        //    Assert.AreEqual(5, result.Select.Length);
-        //    Assert.AreEqual("[p].[ID] AS [Id]", result.Select[0]);
-        //    Assert.AreEqual("[p].[FirstName] AS [FirstName]", result.Select[1]);
-        //    Assert.AreEqual("[p].[LastName] AS [LastName]", result.Select[2]);
-        //    Assert.AreEqual("[parent].[FirstName] AS [ParentFirstName]", result.Select[3]);
-        //    Assert.AreEqual("[parent].[LastName] AS [ParentLastName]", result.Select[4]);
-        //}
+            Assert.AreEqual(5, result.Select.Length);
+            Assert.AreEqual("[p].[ID] AS [Id]", result.Select[0]);
+            Assert.AreEqual("[p].[FirstName] AS [FirstName]", result.Select[1]);
+            Assert.AreEqual("[p].[LastName] AS [LastName]", result.Select[2]);
+            Assert.AreEqual("[parent].[FirstName] AS [ParentFirstName]", result.Select[3]);
+            Assert.AreEqual("[parent].[LastName] AS [ParentLastName]", result.Select[4]);
+        }
 
-        //#endregion
+        [TestMethod]
+        public void SQLinqTest_Join_002()
+        {
+            //Example of what we want
+            //var people2 = new List<Person>();
+            //var parents2 = new List<ParentPerson>();
+            //var cars2 = new List<Car>();
+
+            //var query2 = from p in people2
+            //             join parent in parents2 on p.ParentID equals parent.ID
+            //             join car in cars2 on p.ID equals car.ParentId
+            //             select new
+            //             {
+            //                 Id = p.ID,
+            //                 FirstName = p.FirstName,
+            //                 LastName = p.LastName,
+            //                 ParentFirstName = parent.FirstName,
+            //                 ParentLastName = parent.LastName,
+            //                 CarName = car.Name
+            //             };
+
+            var people = new SQLinq<Person>();
+            var parents = new SQLinq<ParentPerson>();
+            var cars = new SQLinq<Car>();
+
+            var query = from p in people
+                        join pt in parents on p.ParentID equals pt.ID 
+                        join c in cars on p.ID equals c.ParentId
+                        select new
+                        {
+                            Id = p.ID,
+                            FirstName = p.FirstName,
+                            LastName = p.LastName,
+                            ParentFirstName = pt.FirstName,
+                            ParentLastName = pt.LastName,
+                            CarName = c.Name
+                        };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("[Person] AS [p]", result.Table);
+
+            Assert.AreEqual(2, result.Join.Length);
+            Assert.AreEqual("JOIN [ParentPerson] AS [pt] ON [p].[ParentID] = [pt].[ID]", result.Join[0]);
+            Assert.AreEqual("JOIN [Car] AS [c] ON [p].[ID] = [c].[ParentId]", result.Join[1]);
+
+            Assert.AreEqual(6, result.Select.Length);
+            Assert.AreEqual("[p].[ID] AS [Id]", result.Select[0]);
+            Assert.AreEqual("[p].[FirstName] AS [FirstName]", result.Select[1]);
+            Assert.AreEqual("[p].[LastName] AS [LastName]", result.Select[2]);
+            Assert.AreEqual("[pt].[FirstName] AS [ParentFirstName]", result.Select[3]);
+            Assert.AreEqual("[pt].[LastName] AS [ParentLastName]", result.Select[4]);
+            Assert.AreEqual("[c].[Name] AS [CarName]", result.Select[5]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Join_003()
+        {
+            var people = new SQLinq<Person>();
+            var parents = new SQLinq<ParentPerson>();
+
+            var query = from p in people
+                        join pt in parents on p.ParentID equals pt.ID
+                        where p.FirstName.StartsWith("SomeCar") && pt.IsEmployed == true
+                        select new
+                        {
+                            Id = p.ID,
+                            FirstName = p.FirstName,
+                            LastName = p.LastName,
+                            ParentFirstName = pt.FirstName,
+                            ParentLastName = pt.LastName
+                        };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("[Person] AS [p]", result.Table);
+
+            Assert.AreEqual(1, result.Join.Length);
+            Assert.AreEqual("JOIN [ParentPerson] AS [pt] ON [p].[ParentID] = [pt].[ID]", result.Join[0]);
+
+            Assert.AreEqual("([p].[FirstName] LIKE @sqlinq_1 AND [pt].[Is_Employed] = @sqlinq_2)", result.Where);
+
+            Assert.AreEqual(5, result.Select.Length);
+            Assert.AreEqual("[p].[ID] AS [Id]", result.Select[0]);
+            Assert.AreEqual("[p].[FirstName] AS [FirstName]", result.Select[1]);
+            Assert.AreEqual("[p].[LastName] AS [LastName]", result.Select[2]);
+            Assert.AreEqual("[pt].[FirstName] AS [ParentFirstName]", result.Select[3]);
+            Assert.AreEqual("[pt].[LastName] AS [ParentLastName]", result.Select[4]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Join_004()
+        {
+            var people = new SQLinq<Person>();
+            var parents = new SQLinq<ParentPerson>();
+            var cars = new SQLinq<Car>();
+
+            var query = from p in people
+                        join pt in parents on p.ParentID equals pt.ID
+                        join c in cars on p.ID equals c.ParentId
+                        where p.FirstName.StartsWith("John") && pt.IsEmployed == true && c.Name.EndsWith("Honda")
+                        select new
+                        {
+                            Id = p.ID,
+                            FirstName = p.FirstName,
+                            LastName = p.LastName,
+                            ParentFirstName = pt.FirstName,
+                            ParentLastName = pt.LastName,
+                            CarName = c.Name
+                        };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("[Person] AS [p]", result.Table);
+
+            Assert.AreEqual(2, result.Join.Length);
+            Assert.AreEqual("JOIN [ParentPerson] AS [pt] ON [p].[ParentID] = [pt].[ID]", result.Join[0]);
+            Assert.AreEqual("JOIN [Car] AS [c] ON [p].[ID] = [c].[ParentId]", result.Join[1]);
+
+            Assert.AreEqual("(([p].[FirstName] LIKE @sqlinq_1 AND [pt].[Is_Employed] = @sqlinq_2) AND [c].[Name] LIKE @sqlinq_3)", result.Where);
+
+            Assert.AreEqual(6, result.Select.Length);
+            Assert.AreEqual("[p].[ID] AS [Id]", result.Select[0]);
+            Assert.AreEqual("[p].[FirstName] AS [FirstName]", result.Select[1]);
+            Assert.AreEqual("[p].[LastName] AS [LastName]", result.Select[2]);
+            Assert.AreEqual("[pt].[FirstName] AS [ParentFirstName]", result.Select[3]);
+            Assert.AreEqual("[pt].[LastName] AS [ParentLastName]", result.Select[4]);
+            Assert.AreEqual("[c].[Name] AS [CarName]", result.Select[5]);
+
+            var finalSql = result.ToQuery();
+        }
+
+        #endregion
 
         #region Static Insert
 

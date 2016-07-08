@@ -15,6 +15,5 @@ namespace SQLinq
         /// <returns></returns>
         ISQLinqResult ToSQL(int existingParameterCount = 0, string parameterNamePrefix = SqlExpressionCompiler.DefaultParameterNamePrefix);
 
-        //List<ISQLinqJoinExpression> JoinExpressions { get; } // Need to remove this from this interface, it only pertains to SQLinq<T> not DynamicSQLinq
     }
 }

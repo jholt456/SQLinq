@@ -30,13 +30,21 @@ namespace SQLinq
             get { return _parameterPrefix; }
         }
 
-        public string ParseTableName(string tableName)
+        public string ParseTableName(string tableName, string alias = null)
         {
             if (!tableName.StartsWith("["))
             {
-                return string.Format("[{0}]", tableName);
+                tableName = $"[{tableName}]";
             }
-
+            
+            if (!string.IsNullOrWhiteSpace(alias))
+            {
+                if (!alias.StartsWith("["))
+                {
+                    alias = $"[{alias}]";
+                }
+                tableName = $"{tableName} AS {alias}";
+            }
             return tableName;
         }
 

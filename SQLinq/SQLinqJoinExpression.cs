@@ -1,52 +1,55 @@
-﻿////Copyright (c) Chris Pietschmann 2012 (http://pietschsoft.com)
-////Licensed under the GNU Library General Public License (LGPL)
-////License can be found here: http://sqlinq.codeplex.com/license
+﻿//Copyright (c) Chris Pietschmann 2012 (http://pietschsoft.com)
+//Licensed under the GNU Library General Public License (LGPL)
+//License can be found here: http://sqlinq.codeplex.com/license
 
-//using System;
-//using System.Linq.Expressions;
-//using System.Collections.Generic;
+using System;
+using System.Collections.Generic;
+using System.Linq.Expressions;
+using SQLinq.Compiler;
 
-//namespace SQLinq
-//{
-//    public interface ISQLinqJoinExpression
-//    {
-//        string Process(Dictionary<string, object> parameters);
+namespace SQLinq
+{
+    public class SQLinqJoinExpression<TOuter, TInner, TKey, TResult> : ISQLinqTypedJoinExpression
+    {
+        private readonly ISqlDialect dialect;
 
-//        Expression OuterKeySelector { get; }
-//        Expression InnerKeySelector { get; }
-//        Expression ResultSelector { get; }
-//    }
+        public SQLinqJoinExpression(ISqlDialect dialect)
+        {
+            this.dialect = dialect;
+        }
 
-//    public class SQLinqJoinExpression<TOuter, TInner, TKey, TResult> : ISQLinqJoinExpression
-//    {
-//        public SQLinq<TOuter> Outer { get; set; }
-//        public SQLinq<TInner> Inner { get; set; }
-//        public Expression<Func<TOuter, TKey>> OuterKeySelector { get; set; }
-//        public Expression<Func<TInner, TKey>> InnerKeySelector { get; set; }
-//        public Expression<Func<TOuter, TInner, TResult>> ResultSelector { get; set; }
+        public SQLinq<TInner> Inner { get; set; }
+        public Expression<Func<TInner, TKey>> InnerKeySelector { get; set; }
 
-//        public string Process(Dictionary<string, object> parameters)
-//        {
-//            var innerTable = this.Inner.GetTableName(true);
-//            var inner = this.Inner.ProcessExpression(this.InnerKeySelector, parameters);
-//            var outer = this.Outer.ProcessExpression(this.OuterKeySelector, parameters);
+        public SQLinq<TOuter> Outer { get; set; }
+        public Expression<Func<TOuter, TKey>> OuterKeySelector { get; set; }
+        public SQLinq<TResult> Results { get; set; }
+        public Expression<Func<TOuter, TInner, TResult>> ResultSelector { get; set; }
 
-//            return string.Format("JOIN {0} ON {2} = {1}", innerTable, inner, outer);
-//        }
+        public SQLinqTypedJoinResult Process(Dictionary<string, object> parameters, string parameterNamePrefix = SqlExpressionCompiler.DefaultParameterNamePrefix)
+        {
+            var innerTable = this.Inner.GetTableName(true);
 
-//        Expression ISQLinqJoinExpression.OuterKeySelector
-//        {
-//            get { return this.OuterKeySelector; }
-//        }
+            var inner = this.Inner.ProcessJoinExpression(this.InnerKeySelector, parameterNamePrefix, parameters);
+            var outer = this.Outer.ProcessJoinExpression(this.OuterKeySelector, parameterNamePrefix, parameters);
+            var results = this.Outer.ProcessJoinExpression(this.ResultSelector, parameterNamePrefix, parameters);
 
-//        Expression ISQLinqJoinExpression.InnerKeySelector
-//        {
-//            get { return this.InnerKeySelector; }
-//        }
+            return new SQLinqTypedJoinResult(innerTable, inner, outer, results, parameters);
+        }
 
-//        Expression ISQLinqJoinExpression.ResultSelector
-//        {
-//            get { return this.ResultSelector; }
-//        }
-//    }
-//}
+        Expression ISQLinqTypedJoinExpression.OuterKeySelector
+        {
+            get { return this.OuterKeySelector; }
+        }
+
+        Expression ISQLinqTypedJoinExpression.InnerKeySelector
+        {
+            get { return this.InnerKeySelector; }
+        }
+
+        Expression ISQLinqTypedJoinExpression.ResultSelector
+        {
+            get { return this.ResultSelector; }
+        }
+    }
+}

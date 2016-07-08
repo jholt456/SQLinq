@@ -156,7 +156,7 @@ namespace SQLinq
     /// Allows for Ad-Hoc SQL queries to be generated using LINQ in a stongly type manner, while also taking advantage of compile time validation.
     /// </summary>
     /// <typeparam name="T">The Type that contains a strongly typed reference of the scheme for the database table/view to be queried.</typeparam>
-    public class SQLinq<T> : ISQLinq
+    public class SQLinq<T> : ITypedSqlLinq
     {
         /// <summary>
         /// Creates a new SQLinq object
@@ -171,7 +171,7 @@ namespace SQLinq
         public SQLinq(ISqlDialect dialect)
         {
             this.Expressions = new List<Expression>(); //= new List<Expression<Func<T, bool>>>();
-            //this.JoinExpressions = new List<ISQLinqJoinExpression>();
+            this.JoinExpressions = new List<ISQLinqTypedJoinExpression>();
             this.OrderByExpressions = new List<OrderByExpression>();
             this.Dialect = dialect;
         }
@@ -201,8 +201,8 @@ namespace SQLinq
         //public List<Expression<Func<T, bool>>> Expressions { get; private set; }
         public List<Expression> Expressions { get; private set; }
 
-        public Expression<Func<T, object>> Selector { get; private set; }
-        //public List<ISQLinqJoinExpression> JoinExpressions { get; private set; }
+        public Expression<Func<T, object>> Selector { get; protected set; }
+        public List<ISQLinqTypedJoinExpression> JoinExpressions { get; private set; }
         public int? TakeRecords { get; private set; }
         public int? SkipRecords { get; private set; }
         public List<OrderByExpression> OrderByExpressions { get; private set; }
@@ -215,7 +215,7 @@ namespace SQLinq
             public bool Ascending { get; set; }
         }
 
-        private ISQLinq Parent { get; set; }
+        public ITypedSqlLinq Parent { get; set; }
 
         /// <summary>
         /// 
@@ -346,29 +346,34 @@ namespace SQLinq
             return this;
         }
 
-        //public SQLinq<T> Join<TInner, TKey, TResult>(
-        //    //SQLinq<TOuter> outer,
-        //    SQLinq<TInner> inner,
-        //    Expression<Func<T, TKey>> outerKeySelector,
-        //    Expression<Func<TInner, TKey>> innerKeySelector,
-        //    Expression<Func<T, TInner, TResult>> resultSelector)
-        //{
-        //    // http://msdn.microsoft.com/en-us/library/bb738634(v=vs.90).aspx
-        //    // http://byatool.com/c/linq-join-method-and-how-to-use-it/
+        public SQLinq<TResult> Join<TInner, TKey, TResult>(
+            //SQLinq<TOuter> outer,
+            SQLinq<TInner> inner,
+            Expression<Func<T, TKey>> outerKeySelector,
+            Expression<Func<TInner, TKey>> innerKeySelector,
+            Expression<Func<T, TInner, TResult>> resultSelector)
+        {
+            // http://msdn.microsoft.com/en-us/library/bb738634(v=vs.90).aspx
+            // http://byatool.com/c/linq-join-method-and-how-to-use-it/
 
-        //    inner.Parent = this;
+            inner.Parent = this;
 
-        //    this.JoinExpressions.Add(new SQLinqJoinExpression<T, TInner, TKey, TResult> {
-        //        Outer = this,
-        //        Inner = inner,
-        //        OuterKeySelector = outerKeySelector,
-        //        InnerKeySelector = innerKeySelector,
-        //        ResultSelector = resultSelector
-        //    });
-        //    return this;
-        //}
+            var sqLinqJoinExpression = new SQLinqJoinExpression<T, TInner, TKey, TResult>(this.Dialect)
+                                       {
+                                           Outer = this,
+                                           Inner = inner,
+                                           OuterKeySelector = outerKeySelector,
+                                           InnerKeySelector = innerKeySelector,
+                                           ResultSelector = resultSelector
+                                       };
+            this.JoinExpressions.Add(sqLinqJoinExpression);
 
-        private string GetTableName(bool withAs = false)
+
+            return new SQLinqJoin<TResult, T>(this);
+        }
+
+
+        internal string GetTableName(bool withAs = false)
         {
             var tableName = string.Empty;
             var tableAsName = string.Empty;
@@ -389,31 +394,36 @@ namespace SQLinq
                     tableName = tableAttribute.Table;
                 }
 
-                tableAsName = tableName;
-                //if (withAs)
-                //{
-                //    var joins = this.JoinExpressions;
-                //    if (joins.Count == 0)
-                //    {
-                //        if (this.Parent != null)
-                //        {
-                //            joins = this.Parent.JoinExpressions;
-                //        }
-                //    }
-                //    if (joins.Count > 0)
-                //    {
-                //        var je = joins[0];
-                //        ParameterExpression p = ((dynamic)je.OuterKeySelector).Parameters[0] as ParameterExpression;
-                //        if (p.Type != typeof(T))
-                //        {
-                //            p = ((dynamic)je.InnerKeySelector).Parameters[0] as ParameterExpression;
-                //        }
-                //        tableAsName = p.Name;
-                //    }
-                //}
+               
+                if (withAs)
+                {
+                    var joins = this.JoinExpressions;
+                    if (joins.Count == 0)
+                    {
+                        if (this.Parent != null)
+                        {
+                            joins = this.Parent.JoinExpressions;
+                        }
+                    }
+                    if (joins.Count > 0)
+                    {
+                        var je = joins[0];
+                        ParameterExpression p = ((dynamic)je.OuterKeySelector).Parameters[0] as ParameterExpression;
+                        if (p.Type != typeof(T))
+                        {
+                            p = ((dynamic)je.InnerKeySelector).Parameters[0] as ParameterExpression;
+                        }
+
+                        tableAsName = p.Name;
+                    }
+                }
             }
 
-            tableName = this.Dialect.ParseTableName(tableName);
+            if (tableAsName == tableName)
+            {
+                tableAsName = null;
+            }
+            tableName = this.Dialect.ParseTableName(tableName, tableAsName);
 
             //if (tableAsName != null)
             //{
@@ -425,7 +435,7 @@ namespace SQLinq
 
             //if (tableName == tableAsName)
             //{
-            return tableName;
+                return tableName;
             //}
             //else
             //{
@@ -438,7 +448,7 @@ namespace SQLinq
         /// </summary>
         /// <param name="existingParameterCount">Used to set the unique id's of the query parameters. The first query parameter will be 'existingParameterCount' plus one.</param>
         /// <returns></returns>
-        public ISQLinqResult ToSQL(int existingParameterCount = 0, string parameterNamePrefix = SqlExpressionCompiler.DefaultParameterNamePrefix)
+        public virtual ISQLinqResult ToSQL(int existingParameterCount = 0, string parameterNamePrefix = SqlExpressionCompiler.DefaultParameterNamePrefix)
         {
             int _parameterNumber = existingParameterCount;
 
@@ -456,11 +466,11 @@ namespace SQLinq
             }
 
             //// JOIN
-            //var join = new List<string>();
-            //foreach (var j in this.JoinExpressions)
-            //{
-            //    join.Add(j.Process(parameters));
-            //}
+            var join = new List<SQLinqTypedJoinResult>();
+            foreach (var j in this.JoinExpressions)
+            {
+                join.Add(j.Process(parameters, parameterNamePrefix));
+            }
 
             //// SELECT
             var selectResult = this.ToSQL_Select(_parameterNumber, parameterNamePrefix, parameters);
@@ -476,12 +486,12 @@ namespace SQLinq
 
             return new SQLinqSelectResult(this.Dialect)
             {
-                Select = selectResult.Select.ToArray(),
+                Select = this.Expressions.Any() ? selectResult.Select.ToArray() : join.Any() ? join.SelectMany(x=>x.Results.Select).Distinct().ToArray() : selectResult.Select.ToArray(),
                 Distinct = this.DistinctValue,
                 Take = this.TakeRecords,
                 Skip = this.SkipRecords,
                 Table = tableName,
-                //Join = join.ToArray(),
+                Join = join.Select(x=>x.ToQuery()).ToArray(),
                 Where = whereResult == null ? null : whereResult.SQL,
                 OrderBy = orderbyResult.Select.ToArray(),
                 Parameters = parameters
@@ -493,7 +503,7 @@ namespace SQLinq
             SqlExpressionCompilerResult whereResult = null;
             if (this.Expressions.Count > 0)
             {
-                whereResult = SqlExpressionCompiler.Compile(this.Dialect, parameterNumber, parameterNamePrefix, this.Expressions);
+                whereResult = SqlExpressionCompiler.Compile(this.Dialect, parameterNumber, parameterNamePrefix, this.Expressions, this.JoinExpressions.Any());
                 foreach (var item in whereResult.Parameters)
                 {
                     parameters.Add(item.Key, item.Value);
@@ -504,7 +514,9 @@ namespace SQLinq
 
         private SqlExpressionCompilerSelectorResult ToSQL_Select(int parameterNumber, string parameterNamePrefix, IDictionary<string, object> parameters)
         {
-            var selectResult = SqlExpressionCompiler.CompileSelector(this.Dialect, parameterNumber, parameterNamePrefix, this.Selector);
+            var selectResult = SqlExpressionCompiler.CompileSelector(this.Dialect, parameterNumber, parameterNamePrefix, this.Selector, this.JoinExpressions.Any());
+
+           
             foreach (var item in selectResult.Parameters)
             {
                 parameters.Add(item.Key, item.Value);
@@ -543,7 +555,7 @@ namespace SQLinq
 
             for (var i = 0; i < this.OrderByExpressions.Count; i++)
             {
-                var r = SqlExpressionCompiler.CompileSelector(this.Dialect, parameterNumber, parameterNamePrefix, this.OrderByExpressions[i].Expression);
+                var r = SqlExpressionCompiler.CompileSelector(this.Dialect, parameterNumber, parameterNamePrefix, this.OrderByExpressions[i].Expression, this.JoinExpressions.Any());
                 foreach (var s in r.Select)
                 {
                     orderbyResult.Select.Add(s);
@@ -566,6 +578,11 @@ namespace SQLinq
             }
 
             return orderbyResult;
+        }
+
+        public SqlExpressionCompilerSelectorResult ProcessJoinExpression(Expression exp, string parameterNamePrefix, IDictionary<string, object> parameters)
+        {
+            return SqlExpressionCompiler.CompileSelector(this.Dialect, parameters.Count, parameterNamePrefix, exp, true);
         }
     }
 }
