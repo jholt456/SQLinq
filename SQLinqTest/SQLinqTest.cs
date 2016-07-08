@@ -1870,6 +1870,19 @@ namespace SQLinqTest
         }
 
         [TestMethod]
+        public void Int_Test_002()
+        {
+            var query = from d in new SQLinq<GenericTypeTestClass>()
+                        where d.Price.Value > 2
+                        select d;
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("[Price] > @sqlinq_1", result.Where);
+            Assert.AreEqual(2, result.Parameters["@sqlinq_1"]);
+        }
+
+        [TestMethod]
         public void Int_Oracle_Test_001()
         {
             var dialect = new OracleDialect();
@@ -2024,6 +2037,59 @@ namespace SQLinqTest
         {
             public int ID { get; set; }
             public DateTime Date { get; set; }
+        }
+
+        [TestMethod]
+        public void DateTime_004()
+        {
+            var test = DateTime.Now;
+            var query = from d in new SQLinq<DateTime_002_Class>()
+                        where d.Date > test
+                        select d;
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("[Date] > @sqlinq_1", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+            Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
+        }
+
+        [TestMethod]
+        public void DateTime_005()
+        {
+            var query = from d in new SQLinq<DateTime_002_Class>()
+                        where d.Date > DateTime.Now
+                        select d;
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("[Date] > @sqlinq_1", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+
+            var dt = (DateTime)result.Parameters["@sqlinq_1"];
+            Assert.AreEqual(DateTime.Now.ToString("f"), dt.ToString("f"));
+        }
+
+        [TestMethod]
+        public void DateTime_006()
+        {
+            var query = from d in new SQLinq<DateTime_002_Class>()
+                        where d.Date > DateTime.UtcNow
+                        select d;
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("[Date] > @sqlinq_1", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+
+            var dt = (DateTime)result.Parameters["@sqlinq_1"];
+            Assert.AreEqual(DateTime.UtcNow.ToString("f"), dt.ToString("f"));
+        }
+
+        private class DateTime_002_Class
+        {
+            public int ID { get; set; }
+            public DateTime? Date { get; set; }
         }
 
         #endregion
@@ -2232,6 +2298,41 @@ namespace SQLinqTest
             Assert.AreEqual("[pt].[FirstName] AS [ParentFirstName]", result.Select[3]);
             Assert.AreEqual("[pt].[LastName] AS [ParentLastName]", result.Select[4]);
             Assert.AreEqual("[c].[Name] AS [CarName]", result.Select[5]);
+
+            var finalSql = result.ToQuery();
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Join_005()
+        {
+            var people = new SQLinq<Person>();
+            var items = new SQLinq<GenericTypeTestClass>();
+
+            var query = from p in people
+                        join c in items on p.Age equals c.Price.Value
+                        where p.FirstName.StartsWith("John") && c.Name.EndsWith("Honda")
+                        select new
+                        {
+                            Id = p.ID,
+                            FirstName = p.FirstName,
+                            LastName = p.LastName,
+                            CarName = c.Name
+                        };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("[Person] AS [p]", result.Table);
+
+            Assert.AreEqual(1, result.Join.Length);
+            Assert.AreEqual("JOIN [GenericTypeTestClass] AS [c] ON [p].[Age] = [c].[Price]", result.Join[0]);
+
+            Assert.AreEqual("([p].[FirstName] LIKE @sqlinq_1 AND [c].[Name] LIKE @sqlinq_2)", result.Where);
+
+            Assert.AreEqual(4, result.Select.Length);
+            Assert.AreEqual("[p].[ID] AS [Id]", result.Select[0]);
+            Assert.AreEqual("[p].[FirstName] AS [FirstName]", result.Select[1]);
+            Assert.AreEqual("[p].[LastName] AS [LastName]", result.Select[2]);
+            Assert.AreEqual("[c].[Name] AS [CarName]", result.Select[3]);
 
             var finalSql = result.ToQuery();
         }

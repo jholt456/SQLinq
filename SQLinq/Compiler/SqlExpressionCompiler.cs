@@ -519,11 +519,20 @@ namespace SQLinq.Compiler
                             return GetExpressionValue(dialect, rootExpression, e, parameters, getParameterName);
                         }
 
-
-                        // //////// Get Column Name to Use
-                        var memberName = GetMemberColumnName(d.Member, dialect);
-                        memberName = GetAliasedColumnName(dialect, d, memberName, aliasRequired);
-                        return memberName;
+                        var declaringType = d.Expression.Type;
+                        if (declaringType.IsGenericType && declaringType.GetGenericTypeDefinition() == typeof(Nullable<>))
+                        {
+                            var memberName = GetMemberColumnName(((MemberExpression)d.Expression).Member, dialect);
+                            memberName = GetAliasedColumnName(dialect, d, memberName, aliasRequired);
+                            return memberName;
+                        }
+                        else
+                        {
+                            // //////// Get Column Name to Use
+                            var memberName = GetMemberColumnName(d.Member, dialect);
+                            memberName = GetAliasedColumnName(dialect, d, memberName, aliasRequired);
+                            return memberName;
+                        }
                     }
 
                 case ExpressionType.Multiply:
@@ -557,7 +566,17 @@ namespace SQLinq.Compiler
             {
                 if (d.Expression is MemberExpression)
                 {
-                    pi = d.Expression.Member as PropertyInfo;
+                    //var memberExp = (MemberExpression)d.Expression;
+                    //if (memberExp.Type.IsGenericType && memberExp.Type.GetGenericTypeDefinition() == typeof(Nullable<>))
+                    //{
+                    //    //var memberName = ((MemberExpression) d.Expression).Member.Name;
+                    //    //memberName = GetAliasedColumnName(dialect, d, memberName, aliasRequired);
+                    //    //return memberName;
+                    //}
+                    //else
+                    //{
+                        pi = d.Expression.Member as PropertyInfo;
+                    //}
                 }
                 else
                 {
@@ -595,7 +614,15 @@ namespace SQLinq.Compiler
                 string tableName = "";
                 if (d.Expression.NodeType == ExpressionType.MemberAccess)
                 {
-                    tableName = dialect.ParseTableName(((MemberExpression) d.Expression).Member.Name as String);
+                    var memberExp = (MemberExpression)d.Expression;
+                    if (memberExp.Type.IsGenericType && memberExp.Type.GetGenericTypeDefinition() == typeof(Nullable<>))
+                    {
+                        tableName = dialect.ParseTableName(((ParameterExpression)memberExp.Expression).Name);
+                    }
+                    else
+                    {
+                        tableName = dialect.ParseTableName(((MemberExpression) d.Expression).Member.Name);
+                    }
                 }
                 else
                 {
