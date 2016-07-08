@@ -10,7 +10,7 @@ namespace SQLinq
         private readonly SqlExpressionCompilerSelectorResult outer;
         private readonly SqlExpressionCompilerSelectorResult results;
 
-        public SQLinqTypedJoinResult(string innerTable, SqlExpressionCompilerSelectorResult inner, SqlExpressionCompilerSelectorResult outer, SqlExpressionCompilerSelectorResult results, Dictionary<string, object> dictionary)
+        public SQLinqTypedJoinResult(string innerTable, SqlExpressionCompilerSelectorResult inner, SqlExpressionCompilerSelectorResult outer, SqlExpressionCompilerSelectorResult results, IDictionary<string, object> parameters)
         {
             this.innerTable = innerTable;
             this.inner = inner;

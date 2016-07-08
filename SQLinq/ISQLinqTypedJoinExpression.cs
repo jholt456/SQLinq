@@ -6,7 +6,7 @@ namespace SQLinq
 {
     public interface ISQLinqTypedJoinExpression
     {
-        SQLinqTypedJoinResult Process(Dictionary<string, object> parameters, string parameterNamePrefix = SqlExpressionCompiler.DefaultParameterNamePrefix);
+        SQLinqTypedJoinResult Process(IDictionary<string, object> parameters, string parameterNamePrefix = SqlExpressionCompiler.DefaultParameterNamePrefix);
 
         Expression OuterKeySelector { get; }
         Expression InnerKeySelector { get; }

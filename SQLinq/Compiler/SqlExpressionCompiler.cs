@@ -519,11 +519,34 @@ namespace SQLinq.Compiler
                             return GetExpressionValue(dialect, rootExpression, e, parameters, getParameterName);
                         }
 
+                        //catch cases when the user does something like .Value or .HasValue
                         var declaringType = d.Expression.Type;
-                        if (declaringType.IsGenericType && declaringType.GetGenericTypeDefinition() == typeof(Nullable<>))
+                        var nullableType = typeof(Nullable<>);
+                        if (declaringType.IsGenericType && declaringType.GetGenericTypeDefinition() == nullableType)
                         {
-                            var memberName = GetMemberColumnName(((MemberExpression)d.Expression).Member, dialect);
+                             d = (MemberExpression)d.Expression;
+                        }
+
+                        if ((d.Member is PropertyInfo && d.Member.PropertyType.IsGenericType && d.Member.PropertyType.GetGenericTypeDefinition() == nullableType) ||
+                            (d.Member is FieldInfo && d.Member.FieldType.IsGenericType && d.Member.FieldType.GetGenericTypeDefinition() == nullableType)
+                            )
+                        {
+                            var memberName = GetMemberColumnName(d.Member, dialect);
                             memberName = GetAliasedColumnName(dialect, d, memberName, aliasRequired);
+
+
+                            var method = (((MemberExpression) e).Member).Name;
+
+                            switch (method.ToLower())
+                            {
+                                case "hasvalue":
+                                    memberName = $"{memberName} IS NOT NULL";
+                                    break;
+                                default:
+                                    memberName = $"{memberName}";
+                                    break;
+                            }
+
                             return memberName;
                         }
                         else
@@ -566,17 +589,7 @@ namespace SQLinq.Compiler
             {
                 if (d.Expression is MemberExpression)
                 {
-                    //var memberExp = (MemberExpression)d.Expression;
-                    //if (memberExp.Type.IsGenericType && memberExp.Type.GetGenericTypeDefinition() == typeof(Nullable<>))
-                    //{
-                    //    //var memberName = ((MemberExpression) d.Expression).Member.Name;
-                    //    //memberName = GetAliasedColumnName(dialect, d, memberName, aliasRequired);
-                    //    //return memberName;
-                    //}
-                    //else
-                    //{
-                        pi = d.Expression.Member as PropertyInfo;
-                    //}
+                   pi = d.Expression.Member as PropertyInfo;
                 }
                 else
                 {

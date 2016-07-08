@@ -26,7 +26,7 @@ namespace SQLinq
         public SQLinq<TResult> Results { get; set; }
         public Expression<Func<TOuter, TInner, TResult>> ResultSelector { get; set; }
 
-        public SQLinqTypedJoinResult Process(Dictionary<string, object> parameters, string parameterNamePrefix = SqlExpressionCompiler.DefaultParameterNamePrefix)
+        public SQLinqTypedJoinResult Process(IDictionary<string, object> parameters, string parameterNamePrefix = SqlExpressionCompiler.DefaultParameterNamePrefix)
         {
             var innerTable = this.Inner.GetTableName(true);
 
