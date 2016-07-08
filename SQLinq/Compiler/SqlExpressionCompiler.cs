@@ -3,6 +3,7 @@
 //License can be found here: http://sqlinq.codeplex.com/license
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -268,7 +269,7 @@ namespace SQLinq.Compiler
             {
                 throw new Exception("SqlExpressionCompiler.ProcessCallExpresion: ConstantExpression Unsupported");
             }
-            else if (e.Object is MemberExpression)
+            else if (e.Object is MemberExpression && ((MemberExpression)e.Object).Expression.NodeType != ExpressionType.Constant)
             {
                 var dyn = (dynamic) e.Object;
                 var member = (MemberInfo)(dyn).Member;
@@ -352,6 +353,39 @@ namespace SQLinq.Compiler
                     default:
                         throw new Exception("Unsupported Method Name (" + method.Name + ") on String object");
                 }
+            }
+            else if ( (method.DeclaringType == typeof(Enumerable) || 
+                        method.DeclaringType == typeof(Queryable)) &&
+                        e.Arguments.Count == 2 && 
+                        e.Arguments[1].NodeType == ExpressionType.MemberAccess)
+            {
+                string parameterName = null;
+               
+                parameterName = GetExpressionValue(dialect, rootExpression, e.Arguments[0], parameters, getParameterName);
+                  
+                var dyn = (dynamic)e.Arguments[1];
+                var member = (MemberInfo) (dyn).Member;
+                memberName = GetMemberColumnName(member, dialect);
+                memberName = GetAliasedColumnName(dialect, dyn, memberName, aliasRequired);
+
+                return string.Format("{0} IN ({1})", memberName, parameterName);
+            }
+            else if ((typeof(IEnumerable).IsAssignableFrom(method.DeclaringType) ||
+                     typeof(ICollection).IsAssignableFrom(method.DeclaringType)) &&
+                        e.Arguments.Count == 1 && 
+                        e.Arguments[0].NodeType == ExpressionType.MemberAccess)
+            {
+                string parameterName = null;
+               
+                var exp = ((LambdaExpression) rootExpression).Body;
+                parameterName = GetExpressionValue(dialect, rootExpression, exp, parameters, getParameterName);
+
+                var dyn = (dynamic) e.Arguments[0];
+                var member = (MemberInfo) (dyn).Member;
+                memberName = GetMemberColumnName(member, dialect);
+                memberName = GetAliasedColumnName(dialect, dyn, memberName, aliasRequired);
+
+                return string.Format("{0} IN ({1})", memberName, parameterName);
             }
             else
                 throw new Exception("Unsupported Method Declaring Type (" + method.DeclaringType.Name + ")");
@@ -580,7 +614,7 @@ namespace SQLinq.Compiler
             }
         }
 
-        private static string GetAliasedColumnName(ISqlDialect dialect, dynamic d, dynamic memberName, bool aliasRequired)
+        private static string GetAliasedColumnName(ISqlDialect dialect, dynamic d, string memberName, bool aliasRequired)
         {
             string methodName = null;
 
@@ -637,6 +671,10 @@ namespace SQLinq.Compiler
                         tableName = dialect.ParseTableName(((MemberExpression) d.Expression).Member.Name);
                     }
                 }
+                else if (d.Expression.NodeType == ExpressionType.Constant)
+                {
+                    tableName = memberName;
+                }
                 else
                 {
                     // Get Table / View Name to Use
@@ -691,7 +729,24 @@ namespace SQLinq.Compiler
                 }
                 
             }
-                
+
+            if (de.NodeType == ExpressionType.Call)
+            {
+                object val = null;
+
+                var t = (Type)de.Type;
+                var exp = ((MethodCallExpression) de);
+
+                 val = GetMemberAccessValue(rootExpression, exp.Object);
+                if (val != null)
+                {
+                    var id = getParameterName();
+                    parameters.Add(id, dialect.ConvertParameterValue(val));
+                    return id;
+                }
+
+            }
+
             var ce = (e is ConstantExpression) ? e : de.Expression;
             if (ce.NodeType == ExpressionType.Constant)
             {
@@ -760,6 +815,17 @@ namespace SQLinq.Compiler
                 {
                     var id = getParameterName();
                     parameters.Add(id, dialect.ConvertParameterValue(val));
+                    return id;
+                }
+            }
+            else if (ce.NodeType == ExpressionType.Parameter)
+            {
+                var fieldName = de.Member.Name;
+
+                if (fieldName != null)
+                {
+                    var id = getParameterName();
+                    parameters.Add(id, dialect.ConvertParameterValue(fieldName));
                     return id;
                 }
             }

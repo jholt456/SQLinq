@@ -2201,6 +2201,92 @@ namespace SQLinqTest
 
         #endregion
 
+        #region Enumerable 
+        [TestMethod]
+        public void Enumerable_001()
+        {
+            var test = new int[] {1, 2, 3};
+            var query = from d in new SQLinq<Person>()
+                        where test.Contains(d.Age)
+                        select d;
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("[Age] IN (@sqlinq_1)", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+            Assert.IsTrue(test.SequenceEqual( (IEnumerable<int>)result.Parameters.ElementAt(0).Value));
+            Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
+        }
+
+        [TestMethod]
+        public void Enumerable_002()
+        {
+            var test = new List<int> { 1, 2, 3 };
+            var query = from d in new SQLinq<Person>()
+                        where test.Contains(d.Age)
+                        select d;
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("[Age] IN (@sqlinq_1)", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+            Assert.IsTrue(test.SequenceEqual((IEnumerable<int>)result.Parameters.ElementAt(0).Value));
+            Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
+        }
+
+        [TestMethod]
+        public void Enumerable_003()
+        {
+            var test = new Stack<int>(new[] {1, 2, 3});
+            var query = from d in new SQLinq<Person>()
+                        where test.Contains(d.Age)
+                        select d;
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("[Age] IN (@sqlinq_1)", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+            Assert.IsTrue(test.SequenceEqual((IEnumerable<int>)result.Parameters.ElementAt(0).Value));
+            Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
+        }
+
+        [TestMethod]
+        public void Enumerable_004()
+        {
+            var test = (new[] { 1, 2, 3 }).AsQueryable();
+            var query = from d in new SQLinq<Person>()
+                        
+                        where test.Contains(d.Age)
+                        select d;
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("[Age] IN (@sqlinq_1)", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+            Assert.IsTrue(test.SequenceEqual((IEnumerable<int>)result.Parameters.ElementAt(0).Value));
+            Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
+        }
+
+        [TestMethod]
+        public void Enumerable_005()
+        {
+            var test = (new[] { 1, 2, 3 }).AsQueryable().ToList();
+            var query = from d in new SQLinq<Person>()
+                        join c in new SQLinq<ParentPerson>() on d.Age equals c.Age
+                        where test.Contains(d.Age)
+                        select d;
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("[d].[Age] IN (@sqlinq_1)", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+            Assert.IsTrue(test.SequenceEqual((IEnumerable<int>)result.Parameters.ElementAt(0).Value));
+            Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
+        }
+
+
+        #endregion
+
         #region WHERE using Field
 
         [TestMethod]
@@ -2246,6 +2332,7 @@ namespace SQLinqTest
         }
 
         #endregion
+
         #region Table Joins
 
         [TestMethod]
