@@ -50,6 +50,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Compiler\ISqlExpressionResult.cs" />
+    <Compile Include="Compiler\MethodCallHandler.cs" />
     <Compile Include="Compiler\SqlExpressionCompiler.cs" />
     <Compile Include="Compiler\SqlExpressionCompilerResult.cs" />
     <Compile Include="Compiler\SqlExpressionCompilerSelectorResult.cs" />

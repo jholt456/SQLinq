@@ -18,14 +18,16 @@ namespace SQLinq.Compiler
         const string _NULL = "NULL";
         const string _Space = " ";
 
+        public static readonly List<MethodCallHandler> CallHandlerRegistry = new List<MethodCallHandler> { new EnumerableCountSqlHandler(), new OpenAccessSqlHandler(), new NullableHandler()};
+
         public static SqlExpressionCompilerResult Compile(ISqlDialect dialect, int existingParameterCount, string parameterNamePrefix, IEnumerable<Expression> expressions, bool aliasRequired = false)
         {
             return new SqlExpressionCompiler(dialect, existingParameterCount, parameterNamePrefix).Compile(expressions, aliasRequired);
         }
 
-        public static SqlExpressionCompilerSelectorResult CompileSelector(ISqlDialect dialect, int existingParameterCount, string parameterNamePrefix, Expression expression, bool aliasRequired = false)
+        public static SqlExpressionCompilerSelectorResult CompileSelector(ISqlDialect dialect, int existingParameterCount, string parameterNamePrefix, Expression expression, bool aliasRequired = false, bool withAs = true)
         {
-            return new SqlExpressionCompiler(dialect, existingParameterCount, parameterNamePrefix).CompileSelector(expression, aliasRequired);
+            return new SqlExpressionCompiler(dialect, existingParameterCount, parameterNamePrefix).CompileSelector(expression, aliasRequired, withAs);
         }
 
         public SqlExpressionCompiler(int existingParameterCount = 0, string parameterNamePrefix = DefaultParameterNamePrefix)
@@ -82,12 +84,12 @@ namespace SQLinq.Compiler
             return result;
         }
 
-        public SqlExpressionCompilerSelectorResult CompileSelector(Expression expression, bool aliasRequired = false)
+        public SqlExpressionCompilerSelectorResult CompileSelector(Expression expression, bool aliasRequired = false, bool withAs = true)
         {
-            return this.CompileSelector(new Expression[] { expression }, aliasRequired);
+            return this.CompileSelector(new Expression[] { expression }, aliasRequired, withAs);
         }
 
-        public SqlExpressionCompilerSelectorResult CompileSelector(IEnumerable<Expression> expressions, bool aliasRequired = false)
+        public SqlExpressionCompilerSelectorResult CompileSelector(IEnumerable<Expression> expressions, bool aliasRequired = false, bool withAs = true)
         {
             this.CheckRequiredProperties();
 
@@ -95,7 +97,7 @@ namespace SQLinq.Compiler
 
             foreach (var e in expressions)
             {
-                ProcessSelector(this.Dialect, e, e, result.Select, result.Parameters, this.GetParameterName, aliasRequired);
+                ProcessSelector(this.Dialect, e, e, result.Select, result.Parameters, this.GetParameterName, aliasRequired, withAs);
             }
 
             return result;
@@ -120,7 +122,7 @@ namespace SQLinq.Compiler
 
         #region Private Static Methods
 
-        static void ProcessSelector(ISqlDialect dialect, Expression rootExpression, Expression e, IList<string> select, IDictionary<string, object> parameters, Func<string> getParameterName, bool aliasRequired)
+        static void ProcessSelector(ISqlDialect dialect, Expression rootExpression, Expression e, IList<string> select, IDictionary<string, object> parameters, Func<string> getParameterName, bool aliasRequired, bool withAs)
         {
             if (e == null)
             {
@@ -138,7 +140,7 @@ namespace SQLinq.Compiler
 
             if (e.NodeType == ExpressionType.Lambda)
             {
-                ProcessSelector(dialect, rootExpression, ((LambdaExpression)e).Body, select, parameters, getParameterName, aliasRequired);
+                ProcessSelector(dialect, rootExpression, ((LambdaExpression)e).Body, select, parameters, getParameterName, aliasRequired, withAs);
             }
             else if (e.NodeType == ExpressionType.New)
             {
@@ -152,13 +154,27 @@ namespace SQLinq.Compiler
                     {
                         var field = ProcessExpression(dialect, rootExpression, arg, parameters, getParameterName, aliasRequired);
                         var alias = dialect.ParseColumnName(n.Members[i].Name);
-                        if (field == alias)
+                        if (field == alias || !withAs)
                         {
                             select.Add(field);
                         }
                         else
                         {
                             select.Add(string.Format("{0} AS {1}", field, alias));
+                        }
+                    }
+                    else if (arg.NodeType == ExpressionType.Parameter)
+                    {
+                        var param = (ParameterExpression) arg;
+                        var field = dialect.ParseColumnName(param.Name);
+                        var alias = dialect.ParseColumnName(n.Members[0].Name);
+                        if (field == alias || !withAs)
+                        {
+                            select.Add(field);
+                        }
+                        else 
+                        {
+                            select.Add($"{field} AS {alias}");
                         }
                     }
                 }
@@ -282,7 +298,10 @@ namespace SQLinq.Compiler
                 var member = (MemberInfo)((dynamic)e.Object).Member;
                 memberName = GetMemberColumnName(member, dialect);
             }
-
+            else if (e.Object is MethodCallExpression)
+            {
+                throw new Exception("SqlExpressionCompiler.ProcessCallExpresion: Method call Unsupported");
+            }
 
             if (method.DeclaringType == typeof(Guid))
             {
@@ -385,12 +404,12 @@ namespace SQLinq.Compiler
                 }
             }
             else if ((typeof(IEnumerable).IsAssignableFrom(method.DeclaringType) ||
-                     typeof(ICollection).IsAssignableFrom(method.DeclaringType)) &&
-                        e.Arguments.Count == 1 && 
-                        e.Arguments[0].NodeType == ExpressionType.MemberAccess)
+                      typeof(ICollection).IsAssignableFrom(method.DeclaringType)) &&
+                     e.Arguments.Count == 1 &&
+                     e.Arguments[0].NodeType == ExpressionType.MemberAccess)
             {
                 string parameterName = null;
-               
+
                 var exp = ((LambdaExpression) rootExpression).Body;
                 parameterName = GetExpressionValue(dialect, rootExpression, exp, parameters, getParameterName);
 
@@ -402,7 +421,17 @@ namespace SQLinq.Compiler
                 return string.Format("{0} IN ({1})", memberName, parameterName);
             }
             else
-                throw new Exception("Unsupported Method Declaring Type (" + method.DeclaringType.Name + ")");
+            {
+                var handler = CallHandlerRegistry.FirstOrDefault(x=>x.CanHandle(e));
+
+                if (handler != null)
+                {
+                    return handler.Handle(dialect, rootExpression, e, parameters, getParameterName, aliasRequired);
+                }
+                else { 
+                    throw new Exception("Unsupported Method Declaring Type (" + method.DeclaringType.Name + ")");
+                }
+            }
         }
 
         static string ProcessBinaryExpression(ISqlDialect dialect, string sqlOperator, Expression rootExpression, BinaryExpression e, IDictionary<string, object> parameters, Func<string> getParameterName,bool aliasRequired)
@@ -556,34 +585,39 @@ namespace SQLinq.Compiler
                     }
                     else
                     {
+
                         var d = (dynamic)e;
 
-                        if ((d.NodeType == ExpressionType.MemberAccess && d.Expression == null) ||
-                            (!IsPropertyExpressionRootParameter(rootExpression, e) && d.Expression.NodeType != ExpressionType.Parameter)
-                        )
+                        var nullableType = typeof(Nullable<>);
+                        if (d.NodeType == ExpressionType.MemberAccess && d.Expression != null)
+                        {
+                            //catch cases when the user does something like .Value or .HasValue
+                            var declaringType = d.Expression.Type;
+                           
+                            if (declaringType.IsGenericType && declaringType.GetGenericTypeDefinition() == nullableType)
+                            {
+                                d = (MemberExpression) d.Expression;
+                            }
+                        }
+
+                        var isNullableMember = (d.Member is PropertyInfo && d.Member.PropertyType.IsGenericType && d.Member.PropertyType.GetGenericTypeDefinition() == nullableType) ||
+                                               (d.Member is FieldInfo && d.Member.FieldType.IsGenericType && d.Member.FieldType.GetGenericTypeDefinition() == nullableType);
+
+                        if (!isNullableMember && ((d.NodeType == ExpressionType.MemberAccess && d.Expression == null) ||
+                              (!IsPropertyExpressionRootParameter(rootExpression, e) && d.Expression.NodeType != ExpressionType.Parameter))
+                          )
                         {
                             // A property of an object is being used as a query parameter
                             // This isn't the object that represents a column in the database
                             return GetExpressionValue(dialect, rootExpression, e, parameters, getParameterName);
                         }
-
-                        //catch cases when the user does something like .Value or .HasValue
-                        var declaringType = d.Expression.Type;
-                        var nullableType = typeof(Nullable<>);
-                        if (declaringType.IsGenericType && declaringType.GetGenericTypeDefinition() == nullableType)
-                        {
-                             d = (MemberExpression)d.Expression;
-                        }
-
-                        if ((d.Member is PropertyInfo && d.Member.PropertyType.IsGenericType && d.Member.PropertyType.GetGenericTypeDefinition() == nullableType) ||
-                            (d.Member is FieldInfo && d.Member.FieldType.IsGenericType && d.Member.FieldType.GetGenericTypeDefinition() == nullableType)
-                            )
+                        else if (isNullableMember)
                         {
                             var memberName = GetMemberColumnName(d.Member, dialect);
                             memberName = GetAliasedColumnName(dialect, d, memberName, aliasRequired);
 
 
-                            var method = (((MemberExpression) e).Member).Name;
+                            var method = ((MemberExpression) e).Member.Name;
 
                             switch (method.ToLower())
                             {
@@ -734,14 +768,12 @@ namespace SQLinq.Compiler
                         val = DateTime.UtcNow;
                     }
                 }
-
                 if (val != null)
                 {
                     var id = getParameterName();
                     parameters.Add(id, dialect.ConvertParameterValue(val));
                     return id;
                 }
-                
             }
 
             if (de.NodeType == ExpressionType.Call)
@@ -755,10 +787,11 @@ namespace SQLinq.Compiler
                 if (val != null)
                 {
                     var id = getParameterName();
+
+                  
                     parameters.Add(id, dialect.ConvertParameterValue(val));
                     return id;
                 }
-
             }
 
             var ce = (e is ConstantExpression) ? e : de.Expression;
@@ -782,6 +815,21 @@ namespace SQLinq.Compiler
                         {
                             val = propInfo.GetValue(val, null);
                         }
+                    }
+
+                    var sqlLinq = val as ISQLinq;
+                    var sqLinqResult = sqlLinq?.ToSQL(parameters.Count, "sub_query_params") as SQLinqSelectResult;
+
+                    if (sqLinqResult != null)
+                    {
+                        val = $"({sqLinqResult.ToQuery()})";
+
+                        foreach (var item in sqLinqResult.Parameters)
+                        {
+                            parameters.Add(item);
+                        }
+
+                        return val;
                     }
 
                     //var mt = (System.Reflection.MemberTypes)(de.Member).MemberType;

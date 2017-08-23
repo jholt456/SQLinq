@@ -23,7 +23,7 @@ namespace SQLinq
             {
                 MapJoins(local, newItem);
 
-                MapExpressions(local, newItem);
+                newItem.Expressions.AddRange(MapExpressions(local.Expressions, newItem.JoinExpressions));
 
                 local = local.Parent;
             }
@@ -37,7 +37,12 @@ namespace SQLinq
             //replace the select
             if (sql.Select.Length == 1 && sql.Select[0] == "*")
             {
-                sql.Select = newItem.JoinExpressions.Last().Process(sql.Parameters, parameterNamePrefix).Results.Select.ToArray();
+                var resultSelector = newItem.JoinExpressions.Last().Process(sql.Parameters, parameterNamePrefix).Results.Select.ToArray();
+
+                if (resultSelector.Any())
+                {
+                    sql.Select = resultSelector;
+                }
             }
 
             return sql;
@@ -51,51 +56,7 @@ namespace SQLinq
             }
         }
 
-        private static void MapExpressions(ITypedSqlLinq local, SQLinq<TResult> newItem)
-        {
-            if (local.Expressions.Any())
-            {
-                if (newItem.JoinExpressions.Any())
-                {
-                    RemapExpressionsFromJoins(local, newItem);
-                }
-                else
-                {
-                    newItem.Expressions.AddRange(local.Expressions);
-                }
-            }
-        }
-
-        private static void RemapExpressionsFromJoins(ITypedSqlLinq local, SQLinq<TResult> newItem)
-        {
-            var joinParameters = newItem.JoinExpressions
-                                        .Select(x => ((LambdaExpression) x.OuterKeySelector))
-                                        .SelectMany(x => x.Parameters);
-
-            foreach (var expression in local.Expressions)
-            {
-                var localExpression = expression;
-
-                var expParams = ((LambdaExpression) localExpression).Parameters;
-
-                foreach (var param in expParams)
-                {
-                    //re-write existing expressions from the root to the new named join object if needed.
-                    var match = joinParameters.FirstOrDefault(x => x.Type == param.Type && x.Name != param.Name);
-                    if (match != null)
-                    {
-                        var newParam = Expression.Parameter(param.Type, match.Name);
-                        var newExpression = new PredicateRewriterVisitor(newParam).Visit(localExpression);
-                        newItem.Expressions.Add(newExpression);
-                    }
-                    else
-                    {
-                        //no matchng types, so just carry on
-                        newItem.Expressions.Add(localExpression);
-                    }
-                }
-            }
-        }
+        
 
         /// <summary>
         /// 

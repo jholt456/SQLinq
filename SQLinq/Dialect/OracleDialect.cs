@@ -2,6 +2,7 @@
 //Licensed under the GNU Library General Public License (LGPL)
 //License can be found here: https://github.com/crpietschmann/SQLinq/blob/master/LICENSE
 
+using System.Collections.Generic;
 using System.Text;
 
 namespace SQLinq
@@ -143,6 +144,14 @@ namespace SQLinq
             }
 
             return "SELECT " + sb.ToString() + sqlOrderBy;
+        }
+
+        public string IsNull(string col, object defaultValue, IDictionary<string, object> parameters)
+        {
+            var paramName = $"{ParameterPrefix}defaultValue_" + parameters.Keys.Count;
+            parameters.Add(paramName, defaultValue);
+
+            return $"NVL({ParseColumnName(col)},{paramName})";
         }
     }
 }

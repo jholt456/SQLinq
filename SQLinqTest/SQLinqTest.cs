@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using SQLinq.Compiler;
 
 namespace SQLinqTest
 {
@@ -295,6 +296,20 @@ namespace SQLinqTest
 
             Assert.AreEqual("SELECT DISTINCT [FirstName] FROM [Person]", code);
         }
+        [TestMethod]
+        public void SQLinq_Distinct_001_Queryable()
+        {
+            IQueryable<Person> people = new SQLinq<Person>();
+            var query = from d in people
+                        select d.FirstName;
+            query = query.Distinct();
+
+            var result = ((ITypedSqlLinq)query).ToSQL();
+
+            var code = result.ToQuery();
+
+            Assert.AreEqual("SELECT DISTINCT [FirstName] FROM [Person]", code);
+        }
 
         [TestMethod]
         public void SQLinq_Distinct_Take_001()
@@ -340,6 +355,24 @@ namespace SQLinqTest
             query = query.Skip(20).Take(10);
 
             var result = query.ToSQL();
+
+            var code = result.ToQuery();
+
+            Assert.AreEqual("WITH SQLinq_data_set AS (SELECT DISTINCT [FirstName], ROW_NUMBER() OVER (ORDER BY [FirstName]) AS [SQLinq_row_number] FROM (SELECT DISTINCT [FirstName] FROM [Person]) AS d) SELECT * FROM SQLinq_data_set WHERE [SQLinq_row_number] BETWEEN 21 AND 30", code);
+        }
+
+        [TestMethod]
+        public void SQLinq_Distinct_SkipTake_001_Queryable()
+        {
+            IQueryable<Person> people = new SQLinq<Person>();
+            var query = from d in people
+                        orderby d.FirstName
+                        select d.FirstName;
+            query = query.Distinct();
+
+            query = query.Skip(20).Take(10);
+
+            var result = ((ITypedSqlLinq)query).ToSQL();
 
             var code = result.ToQuery();
 
@@ -1465,6 +1498,32 @@ namespace SQLinqTest
             Assert.AreEqual("test", result.Parameters["@sqlinq_2"]);
         }
 
+        [TestMethod]
+        public void SQLinqTest_SubQuery_004()
+        {
+            IQueryable<Person> persons = new SQLinq<Person>();
+            persons = persons.Where(x => x.IsEmployed == true);
+            var query = from p in (from item in persons select item)
+                        where p.FirstName == "Steve" 
+                        select p;
+
+            var result = (SQLinqSelectResult)((ITypedSqlLinq)query).ToSQL();
+            Assert.AreEqual("(SELECT ID, FirstName, LastName, Age, Desc FROM (SELECT * FROM [Person] WHERE [Is_Employed] = 1) AS [Person]", result.ToQuery());
+            Assert.AreEqual(5, result.Select.Length);
+            Assert.AreEqual("[ID]", result.Select[0]);
+            Assert.AreEqual("[FirstName]", result.Select[1]);
+            Assert.AreEqual("[LastName]", result.Select[2]);
+            Assert.AreEqual("[Age]", result.Select[3]);
+            Assert.AreEqual("[Desc] AS [Description]", result.Select[4]);
+
+            Assert.AreEqual("(SELECT ID, FirstName, LastName, Age, Desc FROM (SELECT * FROM [Person] WHERE [Is_Employed] = 1) AS [Person]", result.Table);
+
+            Assert.AreEqual("([FirstName] = @sqlinq_1 AND [Desc] = @sqlinq_2)", result.Where);
+
+            Assert.AreEqual("Steve", result.Parameters["@sqlinq_1"]);
+            Assert.AreEqual("test", result.Parameters["@sqlinq_2"]);
+        }
+
         #endregion
 
         #region TAKE
@@ -1883,6 +1942,34 @@ namespace SQLinqTest
         }
 
         [TestMethod]
+        public void Int_Test_002_GVOD_SQL()
+        {
+            var query = from d in new SQLinq<GenericTypeTestClass>()
+                        where d.Price.GetValueOrDefault() > 2
+                        select d;
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("ISNULL([Price],@defaultValue_0) > @sqlinq_1", result.Where);
+            Assert.AreEqual(0, result.Parameters["@defaultValue_0"]);
+            Assert.AreEqual(2, result.Parameters["@sqlinq_1"]);
+        }
+
+        [TestMethod]
+        public void Int_Test_002_GVOD_ORACLE()
+        {
+            var query = from d in new SQLinq<GenericTypeTestClass>(new OracleDialect())
+                        where d.Price.GetValueOrDefault() > 2
+                        select d;
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("NVL(Price,:defaultValue_0) > :sqlinq_1", result.Where);
+            Assert.AreEqual(0, result.Parameters[":defaultValue_0"]);
+            Assert.AreEqual(2, result.Parameters[":sqlinq_1"]);
+        }
+
+        [TestMethod]
         public void Int_Test_003()
         {
             var query = from d in new SQLinq<GenericTypeTestClass>()
@@ -2162,6 +2249,96 @@ namespace SQLinqTest
         }
 
         [TestMethod]
+        public void DateTime_010_Queryable()
+        {
+            var test = DateTime.Now;
+            IQueryable<DateTime_002_Class> dateTime002Classes = new SQLinq<DateTime_002_Class>();
+            var query = from d in dateTime002Classes
+                        where d.Date.HasValue && d.Date.Value > test
+                        select d;
+
+            var result = (SQLinqSelectResult)((ITypedSqlLinq)query).ToSQL();
+
+            Assert.AreEqual("([Date] IS NOT NULL AND [Date] > @sqlinq_1)", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+            Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
+        }
+
+        [TestMethod]
+        public void DateTime_010_Join()
+        {
+            var test = DateTime.Now;
+            var query = from d in new SQLinq<DateTime_002_Class>()
+                        join d2 in new SQLinq<DateTime_002_Class>() on d.ID equals d2.ID
+                        where d.Date.HasValue && d.Date.Value > test
+                        select d;
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("([d].[Date] IS NOT NULL AND [d].[Date] > @sqlinq_1)", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+            Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
+        }
+
+        [TestMethod]
+        public void DateTime_010_Join_Group()
+        {
+            var test = DateTime.Now;
+            var query = from d in new SQLinq<DateTime_002_Class>()
+                        join d2 in new SQLinq<DateTime_002_Class>() on d.ID equals d2.ID
+                        where d.Date.HasValue && d.Date.Value > test
+                        group d by d.Date into f
+                        select new
+                               {
+                                   f.Key
+                               };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("([d].[Date] IS NOT NULL AND [d].[Date] > @sqlinq_1)", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+            Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
+        }
+
+        [TestMethod]
+        public void DateTime_010_Join_Queryable()
+        {
+            var test = DateTime.Now;
+            IQueryable<DateTime_002_Class> dateTime002Classes = new SQLinq<DateTime_002_Class>();
+            var query = from d in dateTime002Classes
+                        join d2 in new SQLinq<DateTime_002_Class>() on d.ID equals d2.ID
+                        where d.Date.HasValue && d.Date.Value > test
+                        select d;
+
+            var result = (SQLinqSelectResult)((ITypedSqlLinq)query).ToSQL();
+
+            Assert.AreEqual("([d].[Date] IS NOT NULL AND [d].[Date] > @sqlinq_1)", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+            Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
+        }
+
+        [TestMethod]
+        public void DateTime_010_Join_Group_Queryable()
+        {
+            var test = DateTime.Now;
+            IQueryable<DateTime_002_Class> dateTime002Classes = new SQLinq<DateTime_002_Class>();
+            var query = from d in dateTime002Classes
+                        join d2 in new SQLinq<DateTime_002_Class>() on d.ID equals d2.ID
+                        where d.Date.HasValue && d.Date.Value > test
+                        group d by d.Date into f
+                        select new
+                        {
+                            f.Key
+                        };
+
+            var result = (SQLinqSelectResult)((ITypedSqlLinq)query).ToSQL();
+
+            Assert.AreEqual("([d].[Date] IS NOT NULL AND [d].[Date] > @sqlinq_1)", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+            Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
+        }
+
+        [TestMethod]
         public void DateTime_011()
         {
             var query = from d in new SQLinq<DateTime_002_Class>()
@@ -2368,6 +2545,61 @@ namespace SQLinqTest
             Assert.AreEqual("[FirstName] = @sqlinq_1", result.Where);
         }
 
+        [TestMethod]
+        public void Queryable_006()
+        {
+            IQueryable<Person> people = new SQLinq<Person>();
+            IQueryable<ParentPerson> parents = new SQLinq<ParentPerson>();
+            //ITypedSqlLinq query = (ITypedSqlLinq)from p in people
+            //            join parent in parents on p.ParentID equals parent.ID
+            //            select new
+            //            {
+            //                Id = p.ID,
+            //                FirstName = p.FirstName,
+            //                LastName = p.LastName,
+            //                ParentFirstName = parent.FirstName,
+            //                ParentLastName = parent.LastName
+            //            };
+            ITypedSqlLinq query = (ITypedSqlLinq) people.Join(parents, p => p.ParentID,
+                parent => parent.ID,
+                (p, parent) => new {p.ID, p.FirstName, p.LastName, ParentFirstName = parent.FirstName, ParentLastName = parent.LastName})
+                                                        .Select(p => new {p.ID, p.FirstName, p.LastName, p.ParentFirstName, p.ParentLastName})
+                                                        .OrderBy(x => x.FirstName);
+                                             
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("[Person] AS [p]", result.Table);
+
+            Assert.AreEqual(1, result.Join.Length);
+            Assert.AreEqual("JOIN [ParentPerson] AS [parent] ON [p].[ParentID] = [parent].[ID]", result.Join[0]);
+
+            Assert.AreEqual(5, result.Select.Length);
+            Assert.AreEqual("[p].[ID] AS [ID]", result.Select[0]);
+            Assert.AreEqual("[p].[FirstName] AS [FirstName]", result.Select[1]);
+            Assert.AreEqual("[p].[LastName] AS [LastName]", result.Select[2]);
+            Assert.AreEqual("[parent].[FirstName] AS [ParentFirstName]", result.Select[3]);
+            Assert.AreEqual("[parent].[LastName] AS [ParentLastName]", result.Select[4]);
+
+
+            Assert.AreEqual(1, result.OrderBy.Length);
+            Assert.AreEqual("[p].[FirstName]", result.OrderBy[1]);
+        }
+
+        [TestMethod]
+        public void Pluggable_Method_Call_Handlers_001()
+        {
+            var person = new SQLinq<Person>();
+
+            var proxy = ProxyFilters.Apply(person);
+
+            var final = (ITypedSqlLinq)proxy.WithName("Test");
+
+            var result = (SQLinqSelectResult)final.ToSQL();
+
+            Assert.AreEqual(7, result.Select.Length);
+            Assert.AreEqual("[FirstName] = @sqlinq_1", result.Where);
+        }
+
 
         #endregion
 
@@ -2413,6 +2645,440 @@ namespace SQLinqTest
         {
             public int ID;
             public string Name;
+        }
+
+        #endregion
+
+        #region Group By
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_001()
+        {
+
+            var query = from p in new SQLinq<Car>()
+                        group p by p.Make into g
+                        select new
+                        {
+                            Id = g.Key
+                        };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("SELECT [Make] AS [Id] FROM [Car] GROUP BY [Make]", result.ToQuery());
+            Assert.AreEqual("[Car]", result.Table);
+            Assert.AreEqual(1, result.GroupBy.Length);
+            Assert.AreEqual("[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(1, result.Select.Length);
+            Assert.AreEqual("[Make] AS [Id]", result.Select[0]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_001_Queryable()
+        {
+            IQueryable<Car> start = new SQLinq<Car>();
+            ITypedSqlLinq query = (ITypedSqlLinq)from p in start
+                                                    group p by p.Make into g
+                                                    select new
+                                                    {
+                                                        Id = g.Key
+                                                    };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("SELECT [Make] AS [Id] FROM [Car] GROUP BY [Make]", result.ToQuery());
+            Assert.AreEqual("[Car]", result.Table);
+            Assert.AreEqual(1, result.GroupBy.Length);
+            Assert.AreEqual("[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(1, result.Select.Length);
+            Assert.AreEqual("[Make] AS [Id]", result.Select[0]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_002()
+        {
+            var query = from p in new SQLinq<Car>()
+                        where p.Make == "Ford"
+                        group p by p.Make into g
+                        orderby g.Key descending 
+                        select new
+                        {
+                            Id = g.Key
+                        };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("SELECT [Make] AS [Id] FROM [Car] WHERE [Make] = @sqlinq_1 GROUP BY [Make] ORDER BY [Make] DESC", result.ToQuery());
+            Assert.AreEqual(1, result.Parameters.Count);
+            Assert.AreEqual("Ford", result.Parameters["@sqlinq_1"]);
+
+            Assert.AreEqual("[Car]", result.Table);
+            Assert.AreEqual(1, result.GroupBy.Length);
+            Assert.AreEqual("[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(1, result.Select.Length);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_003()
+        {
+
+            var query = from p in new SQLinq<Car>()
+                        group p by new { p.Make, p.ParentId } into g
+                        select new
+                        {
+                            Make = g.Key.Make,
+                            ParentId = g.Key.ParentId
+                        };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("SELECT [Make], [ParentId] FROM [Car] GROUP BY [Make], [ParentId]", result.ToQuery());
+            Assert.AreEqual("[Car]", result.Table);
+            Assert.AreEqual(2, result.GroupBy.Length);
+            Assert.AreEqual("[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(2, result.Select.Length);
+            Assert.AreEqual("[Make]", result.Select[0]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_003_Queryable()
+        {
+            IQueryable<Car> cars = new SQLinq<Car>();
+            ITypedSqlLinq query = (ITypedSqlLinq)from p in cars
+                                                 group p by new { p.Make, p.ParentId } into g
+                                                 select new
+                                                 {
+                                                     Make = g.Key.Make,
+                                                     ParentId = g.Key.ParentId
+                                                 };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("SELECT [Make], [ParentId] FROM [Car] GROUP BY [Make], [ParentId]", result.ToQuery());
+            Assert.AreEqual("[Car]", result.Table);
+            Assert.AreEqual(2, result.GroupBy.Length);
+            Assert.AreEqual("[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(2, result.Select.Length);
+            Assert.AreEqual("[Make]", result.Select[0]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_004()
+        {
+            var query = from p in new SQLinq<Car>()
+                        join c in new SQLinq<Person>() on p.ParentId equals c.ID
+                        group p by p.Make into g
+                        select new
+                        {
+                            Id = g.Key
+                        };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("SELECT [p].[Make] AS [Id] FROM [Car] AS [p] JOIN [Person] AS [c] ON [p].[ParentId] = [c].[ID] GROUP BY [p].[Make]", result.ToQuery());
+            Assert.AreEqual("[Car] AS [p]", result.Table);
+            Assert.AreEqual(1, result.GroupBy.Length);
+            Assert.AreEqual("[p].[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(1, result.Select.Length);
+            Assert.AreEqual("[p].[Make] AS [Id]", result.Select[0]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_004_Queryable()
+        {
+            IQueryable<Car> cars = new SQLinq<Car>();
+            IQueryable<Person> people = new SQLinq<Person>();
+
+            var query = from p in cars
+                        join c in people on p.ParentId equals c.ID
+                        group p by p.Make into g
+                        select new
+                        {
+                            Id = g.Key
+                        };
+
+            var result = (SQLinqSelectResult)((ITypedSqlLinq)query).ToSQL();
+
+            Assert.AreEqual("SELECT [p].[Make] AS [Id] FROM [Car] AS [p] JOIN [Person] AS [c] ON [p].[ParentId] = [c].[ID] GROUP BY [p].[Make]", result.ToQuery());
+            Assert.AreEqual("[Car] AS [p]", result.Table);
+            Assert.AreEqual(1, result.GroupBy.Length);
+            Assert.AreEqual("[p].[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(1, result.Select.Length);
+            Assert.AreEqual("[p].[Make] AS [Id]", result.Select[0]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_005()
+        {
+
+            var query = from p in new SQLinq<Car>()
+                        group p by new { Test = p.Make, Test2 = p.ParentId } into g
+                        select new
+                        {
+                            Make = g.Key.Test,
+                            ParentId = g.Key.Test2
+                        };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("SELECT [Make], [ParentId] FROM [Car] GROUP BY [Make], [ParentId]", result.ToQuery());
+            Assert.AreEqual("[Car]", result.Table);
+            Assert.AreEqual(2, result.GroupBy.Length);
+            Assert.AreEqual("[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(2, result.Select.Length);
+            Assert.AreEqual("[Make]", result.Select[0]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_005_Queryable()
+        {
+            IQueryable<Car> cars = new SQLinq<Car>();
+            ITypedSqlLinq query = (ITypedSqlLinq)from p in cars
+                                                 group p by new { Test = p.Make, Test2 = p.ParentId } into g
+                                                 select new
+                                                 {
+                                                     Make = g.Key.Test,
+                                                     ParentId = g.Key.Test2
+                                                 };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("SELECT [Make], [ParentId] FROM [Car] GROUP BY [Make], [ParentId]", result.ToQuery());
+            Assert.AreEqual("[Car]", result.Table);
+            Assert.AreEqual(2, result.GroupBy.Length);
+            Assert.AreEqual("[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(2, result.Select.Length);
+            Assert.AreEqual("[Make]", result.Select[0]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_005_Join()
+        {
+
+            var query = from p in new SQLinq<Car>()
+                        join c in new SQLinq<Person>() on p.ParentId equals c.ID
+                        group p by new { Test = p.Make, Test2 = p.ParentId } into g
+                        select new
+                        {
+                            Make = g.Key.Test,
+                            ParentId = g.Key.Test2
+                        };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("SELECT [p].[Make] AS [Make], [p].[ParentId] AS [ParentId] FROM [Car] AS [p] JOIN [Person] AS [c] ON [p].[ParentId] = [c].[ID] GROUP BY [p].[Make], [p].[ParentId]", result.ToQuery());
+            Assert.AreEqual("[Car] AS [p]", result.Table);
+            Assert.AreEqual(2, result.GroupBy.Length);
+            Assert.AreEqual("[p].[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(2, result.Select.Length);
+            Assert.AreEqual("[p].[Make] AS [Make]", result.Select[0]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_005_Queryable_Join()
+        {
+            IQueryable<Car> cars = new SQLinq<Car>();
+            IQueryable<Person> people = new SQLinq<Person>();
+            var query = from p in cars
+                        join c in people on p.ParentId equals c.ID
+                        group p by new { Test = p.Make, Test2 = p.ParentId } into g
+                                                 select new
+                                                 {
+                                                     Make = g.Key.Test,
+                                                     ParentId = g.Key.Test2
+                                                 };
+
+            var result = (SQLinqSelectResult)((ITypedSqlLinq)query).ToSQL();
+
+            Assert.AreEqual("SELECT [p].[Make] AS [Make], [p].[ParentId] AS [ParentId] FROM [Car] AS [p] JOIN [Person] AS [c] ON [p].[ParentId] = [c].[ID] GROUP BY [p].[Make], [p].[ParentId]", result.ToQuery());
+            Assert.AreEqual("[Car] AS [p]", result.Table);
+            Assert.AreEqual(2, result.GroupBy.Length);
+            Assert.AreEqual("[p].[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(2, result.Select.Length);
+            Assert.AreEqual("[p].[Make] AS [Make]", result.Select[0]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_006()
+        {
+
+            var query = from p in new SQLinq<Car>()
+                        group p by new { p.Make, p.ParentId } into g
+                        select new
+                        {
+                            Make = g.Key.Make,
+                            ParentId = g.Key.ParentId,
+                            Count = g.Count()
+                        };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("SELECT [Make], [ParentId], Count(*) AS [Count] FROM [Car] GROUP BY [Make], [ParentId]", result.ToQuery());
+            Assert.AreEqual("[Car]", result.Table);
+            Assert.AreEqual(2, result.GroupBy.Length);
+            Assert.AreEqual("[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(3, result.Select.Length);
+            Assert.AreEqual("[Make]", result.Select[0]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_006_Queryable()
+        {
+            IQueryable<Car> cars = new SQLinq<Car>();
+            ITypedSqlLinq query = (ITypedSqlLinq)from p in cars
+                                                 group p by new { p.Make, p.ParentId } into g
+                                                 select new
+                                                 {
+                                                     Make = g.Key.Make,
+                                                     ParentId = g.Key.ParentId,
+                                                     Count = g.Count()
+                                                 };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("SELECT [Make], [ParentId], Count(*) AS [Count] FROM [Car] GROUP BY [Make], [ParentId]", result.ToQuery());
+            Assert.AreEqual("[Car]", result.Table);
+            Assert.AreEqual(2, result.GroupBy.Length);
+            Assert.AreEqual("[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(3, result.Select.Length);
+            Assert.AreEqual("[Make]", result.Select[0]);
+        }
+
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_007()
+        {
+
+            var query = from p in new SQLinq<Car>()
+                        group p by new { Test = p.Make, Test2 = p.ParentId } into g
+                        select new
+                        {
+                            Make = g.Key.Test,
+                            ParentId = g.Key.Test2,
+                            Count = g.Count()
+                        };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("SELECT [Make], [ParentId], Count(*) AS [Count] FROM [Car] GROUP BY [Make], [ParentId]", result.ToQuery());
+            Assert.AreEqual("[Car]", result.Table);
+            Assert.AreEqual(2, result.GroupBy.Length);
+            Assert.AreEqual("[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(3, result.Select.Length);
+            Assert.AreEqual("[Make]", result.Select[0]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_007_Queryable()
+        {
+            IQueryable<Car> cars = new SQLinq<Car>();
+            ITypedSqlLinq query = (ITypedSqlLinq)from p in cars
+                                                 group p by new { Test = p.Make, Test2 = p.ParentId } into g
+                                                 select new
+                                                 {
+                                                     Make = g.Key.Test,
+                                                     ParentId = g.Key.Test2,
+                                                     Count = g.Count()
+                                                 };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("SELECT [Make], [ParentId], Count(*) AS [Count] FROM [Car] GROUP BY [Make], [ParentId]", result.ToQuery());
+            Assert.AreEqual("[Car]", result.Table);
+            Assert.AreEqual(2, result.GroupBy.Length);
+            Assert.AreEqual("[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(3, result.Select.Length);
+            Assert.AreEqual("[Make]", result.Select[0]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_007_Join()
+        {
+
+            var query = from p in new SQLinq<Car>()
+                        join c in new SQLinq<Person>() on p.ParentId equals c.ID
+                        group p by new { Test = p.Make, Test2 = p.ParentId } into g
+                        select new
+                        {
+                            Make = g.Key.Test,
+                            ParentId = g.Key.Test2,
+                            Count = g.Count()
+                        };
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("SELECT [p].[Make] AS [Make], [p].[ParentId] AS [ParentId], Count(*) AS [Count] FROM [Car] AS [p] JOIN [Person] AS [c] ON [p].[ParentId] = [c].[ID] GROUP BY [p].[Make], [p].[ParentId]", result.ToQuery());
+            Assert.AreEqual("[Car] AS [p]", result.Table);
+            Assert.AreEqual(2, result.GroupBy.Length);
+            Assert.AreEqual("[p].[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(3, result.Select.Length);
+            Assert.AreEqual("[p].[Make] AS [Make]", result.Select[0]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_007_Queryable_Join()
+        {
+            IQueryable<Car> cars = new SQLinq<Car>();
+            IQueryable<Person> people = new SQLinq<Person>();
+            var query = from p in cars
+                        join c in people on p.ParentId equals c.ID
+                        group p by new { Test = p.Make, Test2 = p.ParentId } into g
+                        select new
+                        {
+                            Random = g.Key.Test,
+                            Random2 = g.Key.Test2,
+                            Count = g.Count()
+                        };
+
+            var result = (SQLinqSelectResult)((ITypedSqlLinq)query).ToSQL();
+
+            Assert.AreEqual("SELECT [p].[Make] AS [Random], [p].[ParentId] AS [Random2], Count(*) AS [Count] FROM [Car] AS [p] JOIN [Person] AS [c] ON [p].[ParentId] = [c].[ID] GROUP BY [p].[Make], [p].[ParentId]", result.ToQuery());
+            Assert.AreEqual("[Car] AS [p]", result.Table);
+            Assert.AreEqual(2, result.GroupBy.Length);
+            Assert.AreEqual("[p].[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(3, result.Select.Length);
+            Assert.AreEqual("[p].[Make] AS [Random]", result.Select[0]);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Group_By_008_Queryable_Join()
+        {
+            IQueryable<Car> cars = new SQLinq<Car>();
+            IQueryable<Person> people = new SQLinq<Person>();
+            IQueryable<ParentPerson> parents = new SQLinq<ParentPerson>();
+            var query = from p in cars
+                        join c in people on p.ParentId equals c.ID
+                        join pp in parents on p.ParentId equals pp.ID
+                        where pp.IsEmployed
+                        orderby pp.Age
+                        group p by new { Test = p.Make, p.ParentId } into g
+                        select g;
+
+            var result = (SQLinqSelectResult)((ITypedSqlLinq)query).ToSQL();
+
+            Assert.AreEqual("SELECT [p].[Make] AS [Test], [p].[ParentId] AS [ParentId] FROM [Car] AS [p] JOIN [ParentPerson] AS [pp] ON [p].[ParentId] = [pp].[ID] JOIN [Person] AS [c] ON [p].[ParentId] = [c].[ID] WHERE NULL GROUP BY [p].[Make], [p].[ParentId] ORDER BY [pp].[Age]", result.ToQuery());
+            Assert.AreEqual("[Car] AS [p]", result.Table);
+            Assert.AreEqual(2, result.GroupBy.Length);
+            Assert.AreEqual("[p].[Make]", result.GroupBy[0]);
+
+            Assert.AreEqual(3, result.Select.Length);
+            Assert.AreEqual("[p].[Make] AS [Random]", result.Select[0]);
         }
 
         #endregion
@@ -2637,8 +3303,7 @@ namespace SQLinqTest
 
             Assert.AreEqual(1, result.Join.Length);
             Assert.AreEqual("JOIN [GenericTypeTestClass] AS [c] ON [p].[Age] = [c].[Price]", result.Join[0]);
-
-            //Assert.AreEqual("[p].[Is_Employed] = 1 AND ([p].[FirstName] LIKE @sqlinq_1 AND [c].[Name] LIKE @sqlinq_2)", result.Where);
+            
             Assert.AreEqual("[p].[Is_Employed] = @sqlinq_1 AND [c].[Price] IS NOT NULL", result.Where);
 
             Assert.AreEqual(3, result.Select.Length);
@@ -2937,4 +3602,6 @@ namespace SQLinqTest
 
         #endregion
     }
+
+  
 }

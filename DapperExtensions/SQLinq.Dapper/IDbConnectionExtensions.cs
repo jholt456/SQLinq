@@ -12,12 +12,11 @@ namespace SQLinq.Dapper
     {
         public static IEnumerable<T> Query<T>(this IDbConnection dbconnection, SQLinq<T> query,
             IDbTransaction transaction = null, bool buffered = true, int? commandTimeout = null, CommandType? commandType = null)
-            where T : new()
         {
             var result = query.ToSQL();
 
             var sql = result.ToQuery();
-            var parameters = new DictionaryParameterObject(result.Parameters);
+            var parameters = new DapperDotNet.DynamicParameters(result.Parameters);
 
             return DapperDotNet.SqlMapper.Query<T>(dbconnection, sql, parameters, transaction, buffered, commandTimeout, commandType);
         }
@@ -28,7 +27,7 @@ namespace SQLinq.Dapper
             var result = query.ToSQL();
 
             var sql = result.ToQuery();
-            var parameters = new DictionaryParameterObject(result.Parameters);
+            var parameters = new DapperDotNet.DynamicParameters(result.Parameters);
 
             return DapperDotNet.SqlMapper.Query(dbconnection, sql, parameters, transaction, buffered, commandTimeout, commandType);
         }

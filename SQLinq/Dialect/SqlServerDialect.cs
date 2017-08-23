@@ -3,6 +3,7 @@
 //License can be found here: https://github.com/crpietschmann/SQLinq/blob/master/LICENSE
 
 using System;
+using System.Collections.Generic;
 using System.Text;
 
 namespace SQLinq
@@ -18,7 +19,7 @@ namespace SQLinq
 
         public void AssertSkip<T>(SQLinq<T> sqLinq)
         {
-            if (sqLinq.OrderByExpressions.Count == 0)
+            if (!sqLinq.IsOrdered())
             {
                 throw new NotSupportedException("SQLinq: Skip can only be performed if OrderBy is specified.");
             }
@@ -167,6 +168,14 @@ namespace SQLinq
             }
 
             return "SELECT " + sb.ToString() + sqlOrderBy;
+        }
+
+        public string IsNull(string col,  object defaultValue, IDictionary<string, object> parameters)
+        {
+            var paramName = $"{ParameterPrefix}defaultValue_" + parameters.Keys.Count;
+            parameters.Add(paramName, defaultValue);
+
+            return $"ISNULL({ParseColumnName(col)},{paramName})";
         }
     }
 }
