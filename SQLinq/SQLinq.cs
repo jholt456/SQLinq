@@ -212,8 +212,19 @@ namespace SQLinq
         public Expression<Func<T, object>> Selector { get; protected set; }
         public List<ISQLinqTypedJoinExpression> JoinExpressions { get; private set; }
         public List<ISQLinqGrouping> GroupExpressions { get; private set; }
-        public int? TakeRecords { get; private set; }
-        public int? SkipRecords { get; private set; }
+
+        public int? TakeRecords
+        {
+            get => takeRecords ?? this.Parent?.TakeRecords;
+            private set => takeRecords = value;
+        }
+
+        public int? SkipRecords
+        {
+            get => skipRecords ?? this.Parent?.SkipRecords;
+            private set => skipRecords = value;
+        }
+
         public List<OrderByExpression> OrderByExpressions { get; private set; }
 
         private bool? DistinctValue { get; set; }
@@ -903,20 +914,31 @@ namespace SQLinq
             if (selectResult.Select.Count == 0)
             {
                 var props = typeof(T).GetProperties();
+
                 var usesSQLinqColumn = props.Where(d => d.GetCustomAttributes(typeof(SQLinqColumnAttribute), false).Length > 0).Count() > 0;
                 if (usesSQLinqColumn)
                 {
+
                     foreach (var p in props)
                     {
-                        var selectName = SqlExpressionCompiler.GetMemberColumnName(p, this.Dialect);
-                        var asName = this.Dialect.ParseColumnName(p.Name);
-                        if (selectName == asName)
+                        var includeInSelect = true;
+                        var attr = p.GetCustomAttributes(typeof(SQLinqColumnAttribute), true).FirstOrDefault() as SQLinqColumnAttribute;
+                        if (attr != null)
                         {
-                            selectResult.Select.Add(selectName);
+                            includeInSelect = attr.Select;
                         }
-                        else
+                        if (includeInSelect)
                         {
-                            selectResult.Select.Add(string.Format("{0} AS {1}", selectName, asName));
+                            var selectName = SqlExpressionCompiler.GetMemberColumnName(p, this.Dialect);
+                            var asName = this.Dialect.ParseColumnName(p.Name);
+                            if (selectName == asName)
+                            {
+                                selectResult.Select.Add(selectName);
+                            }
+                            else
+                            {
+                                selectResult.Select.Add(string.Format("{0} AS {1}", selectName, asName));
+                            }
                         }
                     }
                 }
@@ -1012,6 +1034,9 @@ namespace SQLinq
         }
 
         private Expression expression;
+        private int? takeRecords;
+        private int? skipRecords;
+
         public Expression Expression
         {
             get

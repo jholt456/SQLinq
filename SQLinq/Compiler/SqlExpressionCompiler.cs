@@ -276,11 +276,12 @@ namespace SQLinq.Compiler
             var method = e.Method;
             string memberName = null;
 
-            if (e.Object is ParameterExpression)
+            if (e.Object is ParameterExpression )
             {
                 // This is used by DynamicSQLinqLambdaExpression
                 memberName = "{FieldName}";
             }
+
             else if (e.Object is ConstantExpression)
             {
                 throw new Exception("SqlExpressionCompiler.ProcessCallExpresion: ConstantExpression Unsupported");
@@ -292,7 +293,7 @@ namespace SQLinq.Compiler
                 memberName = GetMemberColumnName(member, dialect);
                 memberName = GetAliasedColumnName(dialect, dyn, memberName, aliasRequired);
             }
-            else if (e.Object != null)
+            else if (e.Object != null && e.GetType().IsGenericParameter)
             {
                 // Get Column Name to Use
                 var member = (MemberInfo)((dynamic)e.Object).Member;
@@ -300,7 +301,11 @@ namespace SQLinq.Compiler
             }
             else if (e.Object is MethodCallExpression)
             {
-                throw new Exception("SqlExpressionCompiler.ProcessCallExpresion: Method call Unsupported");
+                var member = (MethodInfo) ((dynamic) e.Object).Method;
+
+                var loclMethod = member;
+                var localMember = GetMemberColumnName(((dynamic) e.Object).Object.Member, dialect);
+                memberName = ReplaceMethodCall(dialect, rootExpression, ((dynamic) e.Object), parameters, getParameterName, loclMethod, localMember);
             }
 
             if (method.DeclaringType == typeof(Guid))
@@ -319,67 +324,13 @@ namespace SQLinq.Compiler
             }
             else if (method.DeclaringType == typeof(string))
             {
-                string parameterName = null;
-                string secondParameterName = null;
-                if (e.Arguments.Count > 0)
-                {
-                    parameterName = GetExpressionValue(dialect, rootExpression, e.Arguments[0], parameters, getParameterName);
-
-                    if (e.Arguments.Count > 1)
-                    {
-                        secondParameterName = GetExpressionValue(dialect, rootExpression, e.Arguments[1], parameters, getParameterName);
-                    }
-                }
-
-                switch (method.Name.ToLower())
-                {
-                    case "startswith":
-                        parameters[parameterName] = parameters[parameterName].ToString() + "%";
-                        return string.Format("{0} LIKE {1}", memberName, parameterName);
-
-                    case "endswith":
-                        parameters[parameterName] = "%" + parameters[parameterName].ToString();
-                        return string.Format("{0} LIKE {1}", memberName, parameterName);
-
-                    case "contains":
-                        parameters[parameterName] = "%" + parameters[parameterName].ToString() + "%";
-                        return string.Format("{0} LIKE {1}", memberName, parameterName);
-
-                    case "toupper":
-                        return string.Format("UCASE({0})", memberName);
-
-                    case "tolower":
-                        return string.Format("LCASE({0})", memberName);
-
-                    case "replace":
-                        return string.Format("REPLACE({0}, {1}, {2})", memberName, parameterName, secondParameterName);
-
-                    case "substring":
-                        if (secondParameterName != null)
-                        {
-                            return string.Format("SUBSTR({0}, {1}, {2})", memberName, parameterName, secondParameterName);
-                        }
-                        else
-                        {
-                            return string.Format("SUBSTR({0}, {1})", memberName, parameterName);
-                        }
-
-                    case "indexof":
-                        return string.Format("CHARINDEX({0}, {1})", parameterName, memberName);
-                    case "trim":
-                        return string.Format("LTRIM(RTRIM({0}))", memberName);
-
-                    default:
-                        throw new Exception("Unsupported Method Name (" + method.Name + ") on String object");
-                }
+                return ReplaceMethodCall(dialect, rootExpression, e, parameters, getParameterName, method, memberName);
             }
             else if ( (method.DeclaringType == typeof(Enumerable) || 
                         method.DeclaringType == typeof(Queryable)) &&
                         e.Arguments.Count == 2)
             {
                 string parameterName = null;
-               
-              
 
                 if (e.Arguments[1].NodeType == ExpressionType.MemberAccess)
                 {
@@ -389,7 +340,7 @@ namespace SQLinq.Compiler
                     memberName = GetMemberColumnName(member, dialect);
                     memberName = GetAliasedColumnName(dialect, dyn, memberName, aliasRequired);
 
-                    return string.Format("{0} IN ({1})", memberName, parameterName);
+                    return string.Format("{0} IN {1}", memberName, parameterName);
                 }
                 else if (e.Arguments[1].NodeType == ExpressionType.Quote)
                 {
@@ -397,6 +348,18 @@ namespace SQLinq.Compiler
                     var result = ProcessExpression(dialect, rootExpression, ((UnaryExpression) e.Arguments[1]).Operand, parameters, getParameterName, aliasRequired);
 
                     return result;
+                }
+                else if (e.Arguments[1].NodeType == ExpressionType.Call)
+                {
+                    //this is used when building expressions from IQueryables
+                    parameterName = GetExpressionValue(dialect, rootExpression, e.Arguments[0], parameters, getParameterName);
+                    var dyn = (MethodCallExpression)e.Arguments[1];
+                    var member = ProcessCallExpression(dialect, rootExpression, dyn, parameters, getParameterName, aliasRequired);
+                  
+
+                    return string.Format("{0} IN {1}", member, parameterName);
+
+                    //return result;
                 }
                 else
                 {
@@ -408,17 +371,35 @@ namespace SQLinq.Compiler
                      e.Arguments.Count == 1 &&
                      e.Arguments[0].NodeType == ExpressionType.MemberAccess)
             {
-                string parameterName = null;
+                if (rootExpression.NodeType == ExpressionType.Lambda)
+                {
+                    var exp = ((LambdaExpression) rootExpression).Body;
+                    var parameterName = GetExpressionValue(dialect, rootExpression, exp, parameters, getParameterName);
 
-                var exp = ((LambdaExpression) rootExpression).Body;
-                parameterName = GetExpressionValue(dialect, rootExpression, exp, parameters, getParameterName);
+                    var dyn = (dynamic) e.Arguments[0];
+                    var member = (MemberInfo) (dyn).Member;
+                    memberName = GetMemberColumnName(member, dialect);
+                    memberName = GetAliasedColumnName(dialect, dyn, memberName, aliasRequired);
 
-                var dyn = (dynamic) e.Arguments[0];
-                var member = (MemberInfo) (dyn).Member;
-                memberName = GetMemberColumnName(member, dialect);
-                memberName = GetAliasedColumnName(dialect, dyn, memberName, aliasRequired);
+                    return string.Format("{0} IN {1}", memberName, parameterName);
+                }
+                else if (rootExpression.NodeType == ExpressionType.Call)
+                {
+                    var exp = ((MethodCallExpression)rootExpression);
 
-                return string.Format("{0} IN ({1})", memberName, parameterName);
+                    return ProcessCallExpression(dialect, exp.Arguments[1], exp, parameters, getParameterName, false);
+                }
+                else if (rootExpression.NodeType == ExpressionType.Quote)
+                {
+                    var exp = ((UnaryExpression)rootExpression);
+
+                    return ProcessExpression(dialect, exp.Operand, exp.Operand, parameters, getParameterName, false);
+                }
+                else
+                {
+                    throw new Exception("Unsupported Call Node Type (" + e.NodeType + ")");
+                }
+            
             }
             else
             {
@@ -431,6 +412,63 @@ namespace SQLinq.Compiler
                 else { 
                     throw new Exception("Unsupported Method Declaring Type (" + method.DeclaringType.Name + ")");
                 }
+            }
+        }
+
+        private static string ReplaceMethodCall(ISqlDialect dialect, Expression rootExpression, MethodCallExpression e, IDictionary<string, object> parameters, Func<string> getParameterName, MethodInfo method, string memberName)
+        {
+            string parameterName = null;
+            string secondParameterName = null;
+            if (e.Arguments.Count > 0)
+            {
+                parameterName = GetExpressionValue(dialect, rootExpression, e.Arguments[0], parameters, getParameterName);
+
+                if (e.Arguments.Count > 1)
+                {
+                    secondParameterName = GetExpressionValue(dialect, rootExpression, e.Arguments[1], parameters, getParameterName);
+                }
+            }
+
+            switch (method.Name.ToLower())
+            {
+                case "startswith":
+                    parameters[parameterName] = parameters[parameterName].ToString() + "%";
+                    return string.Format("{0} LIKE {1}", memberName, parameterName);
+
+                case "endswith":
+                    parameters[parameterName] = "%" + parameters[parameterName].ToString();
+                    return string.Format("{0} LIKE {1}", memberName, parameterName);
+
+                case "contains":
+                    parameters[parameterName] = "%" + parameters[parameterName].ToString() + "%";
+                    return string.Format("{0} LIKE {1}", memberName, parameterName);
+
+                case "toupper":
+                    return string.Format("UCASE({0})", memberName);
+
+                case "tolower":
+                    return string.Format("LCASE({0})", memberName);
+
+                case "replace":
+                    return string.Format("REPLACE({0}, {1}, {2})", memberName, parameterName, secondParameterName);
+
+                case "substring":
+                    if (secondParameterName != null)
+                    {
+                        return string.Format("SUBSTR({0}, {1}, {2})", memberName, parameterName, secondParameterName);
+                    }
+                    else
+                    {
+                        return string.Format("SUBSTR({0}, {1})", memberName, parameterName);
+                    }
+
+                case "indexof":
+                    return string.Format("CHARINDEX({0}, {1})", parameterName, memberName);
+                case "trim":
+                    return string.Format("LTRIM(RTRIM({0}))", memberName);
+
+                default:
+                    throw new Exception("Unsupported Method Name (" + method.Name + ") on String object");
             }
         }
 
@@ -450,6 +488,10 @@ namespace SQLinq.Compiler
                 {
                     op = "IS NOT";
                 }
+            }
+            else if (left.IndexOf(" LIKE ", StringComparison.OrdinalIgnoreCase) > -1)
+            {
+                return string.Format("{0}", left);
             }
 
             return string.Format("{1} {0} {2}", op, left, right);
@@ -603,15 +645,24 @@ namespace SQLinq.Compiler
                         var isNullableMember = (d.Member is PropertyInfo && d.Member.PropertyType.IsGenericType && d.Member.PropertyType.GetGenericTypeDefinition() == nullableType) ||
                                                (d.Member is FieldInfo && d.Member.FieldType.IsGenericType && d.Member.FieldType.GetGenericTypeDefinition() == nullableType);
 
-                        if (!isNullableMember && ((d.NodeType == ExpressionType.MemberAccess && d.Expression == null) ||
+                        if (((d.NodeType == ExpressionType.MemberAccess && d.Expression == null) ||
                               (!IsPropertyExpressionRootParameter(rootExpression, e) && d.Expression.NodeType != ExpressionType.Parameter))
                           )
                         {
                             // A property of an object is being used as a query parameter
                             // This isn't the object that represents a column in the database
-                            return GetExpressionValue(dialect, rootExpression, e, parameters, getParameterName);
+                            if (isNullableMember)
+                            {
+                                return GetExpressionValue(dialect, rootExpression, e, parameters, getParameterName);
+                            }
+                            else
+                            {
+                                return GetExpressionValue(dialect, rootExpression, e, parameters, getParameterName);
+                            }
                         }
-                        else if (isNullableMember)
+
+
+                        if (isNullableMember)
                         {
                             var memberName = GetMemberColumnName(d.Member, dialect);
                             memberName = GetAliasedColumnName(dialect, d, memberName, aliasRequired);
@@ -649,11 +700,13 @@ namespace SQLinq.Compiler
 
                 case ExpressionType.And:
                 case ExpressionType.Or:
+                case ExpressionType.Not:
                     return ProcessExpression(dialect, rootExpression, e, parameters, getParameterName, aliasRequired);
 
                 case ExpressionType.Call:
                     return ProcessCallExpression(dialect, rootExpression, (MethodCallExpression)e, parameters, getParameterName, aliasRequired);
-
+                case ExpressionType.Quote:
+                    return ProcessExpression(dialect, rootExpression, ((UnaryExpression)e).Operand, parameters, getParameterName, aliasRequired);
                 case ExpressionType.Convert:
                     return ProcessExpression(dialect, rootExpression, (UnaryExpression)e, parameters, getParameterName, aliasRequired);
 
@@ -783,14 +836,20 @@ namespace SQLinq.Compiler
                 var t = (Type)de.Type;
                 var exp = ((MethodCallExpression) de);
 
-                 val = GetMemberAccessValue(rootExpression, exp.Object);
-                if (val != null)
+                if (exp.Object != null)
                 {
-                    var id = getParameterName();
+                    val = GetMemberAccessValue(rootExpression, exp.Object);
+                    if (val != null)
+                    {
+                        var id = getParameterName();
 
-                  
-                    parameters.Add(id, dialect.ConvertParameterValue(val));
-                    return id;
+                        parameters.Add(id, dialect.ConvertParameterValue(val));
+                        return id;
+                    }
+                }
+                else 
+                {
+                    throw new Exception("Unsupported call expression");
                 }
             }
 
@@ -910,7 +969,7 @@ namespace SQLinq.Compiler
             else if (e.NodeType == ExpressionType.MemberAccess)
             {
                 var val = GetMemberAccessValue(rootExpression, de.Expression);
-                if (val == null) return null;
+                //if (val == null) return null;
 
                 if (de.Member is PropertyInfo)
                 {

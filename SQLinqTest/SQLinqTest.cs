@@ -281,6 +281,26 @@ namespace SQLinqTest
             Assert.AreEqual("[Column With Spaces] AS [ColumnWithSpaces]", result.Select[6]);
         }
 
+        [TestMethod]
+        public void SQLinqTest_013()
+        {
+            string nullVal = null;
+            var query = from d in new SQLinq<PersonFirstNameNoSelect>()
+                        where d.FirstName != nullVal
+                        select d;
+
+            var result = (SQLinqSelectResult)query.ToSQL();
+
+            Assert.AreEqual("[PersonFirstNameNoSelect]", result.Table);
+
+            Assert.AreEqual("[FirstName] IS NOT NULL", result.Where);
+
+            Assert.AreEqual(0, result.Parameters.Count);
+
+            Assert.AreEqual(6, result.Select.Length);
+            Assert.IsFalse(result.Select.Any(x => x.Contains("FirstName", StringComparison.OrdinalIgnoreCase)));
+        }
+
         #region DISTINCT
 
         [TestMethod]
@@ -1061,6 +1081,8 @@ namespace SQLinqTest
             Assert.AreEqual("%hri%", result.Parameters["@sqlinq_1"]);
         }
 
+
+
         #endregion
 
         #region "WHERE NOT EQUAL"
@@ -1541,6 +1563,42 @@ namespace SQLinqTest
             Assert.AreEqual("SELECT TOP 15 [ID], [FirstName], [LastName], [Age], [Is_Employed] AS [IsEmployed], [ParentID], [Column With Spaces] AS [ColumnWithSpaces] FROM [Person]", sql);
         }
 
+        [TestMethod]
+        public void SQLinqTest_Take_Child_001()
+        {
+            var query = new SQLinq<Person>().Select(x => new {x.FirstName});
+
+            var result = query.Take(15).ToSQL();
+
+            var sql = result.ToQuery();
+
+            Assert.AreEqual("SELECT TOP 15 [FirstName] FROM [Person]", sql);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Take_Child_002()
+        {
+            IQueryable<Person> query = new SQLinq<Person>().Select(x => new { x.FirstName });
+
+            var result = (ITypedSqlLinq)query.Take(15);
+
+            var sql = result.ToSQL().ToQuery();
+
+            Assert.AreEqual("SELECT TOP 15 [FirstName] FROM [Person]", sql);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Take_Child_003()
+        {
+            IQueryable<Person> query = new SQLinq<Person>();
+
+            var result = (ITypedSqlLinq)query.Take(15);
+
+            var sql = result.ToSQL().ToQuery();
+
+            Assert.AreEqual("SELECT TOP 15 [ID], [FirstName], [LastName], [Age], [Is_Employed] AS [IsEmployed], [ParentID], [Column With Spaces] AS [ColumnWithSpaces] FROM [Person]", sql);
+        }
+
         #endregion
 
         #region SKIP
@@ -1582,6 +1640,19 @@ namespace SQLinqTest
 
             var result = query.Skip(10).Take(5).ToSQL();
 
+            var sql = result.ToQuery();
+
+            Assert.AreEqual("WITH SQLinq_data_set AS (SELECT [ID], [FirstName], [LastName], [Age], [Is_Employed] AS [IsEmployed], [ParentID], [Column With Spaces] AS [ColumnWithSpaces], ROW_NUMBER() OVER (ORDER BY [Age]) AS [SQLinq_row_number] FROM [Person]) SELECT * FROM SQLinq_data_set WHERE [SQLinq_row_number] BETWEEN 11 AND 15", sql);
+        }
+
+        [TestMethod]
+        public void SQLinqTest_Skip_005()
+        {
+            IQueryable<Person> query = new SQLinq<Person>().OrderBy(x => x.FirstName);
+
+
+             query = query.Skip(10).Take(5);
+            var result = ((ITypedSqlLinq) query).ToSQL();
             var sql = result.ToQuery();
 
             Assert.AreEqual("WITH SQLinq_data_set AS (SELECT [ID], [FirstName], [LastName], [Age], [Is_Employed] AS [IsEmployed], [ParentID], [Column With Spaces] AS [ColumnWithSpaces], ROW_NUMBER() OVER (ORDER BY [Age]) AS [SQLinq_row_number] FROM [Person]) SELECT * FROM SQLinq_data_set WHERE [SQLinq_row_number] BETWEEN 11 AND 15", sql);
@@ -1905,6 +1976,21 @@ namespace SQLinqTest
             var result = (SQLinqSelectResult)query.ToSQL();
 
             Assert.AreEqual("REPLACE([FirstName], @sqlinq_1, @sqlinq_2) = @sqlinq_3", result.Where);
+            Assert.AreEqual("Chr", result.Parameters["@sqlinq_1"]);
+            Assert.AreEqual("Cr", result.Parameters["@sqlinq_2"]);
+            Assert.AreEqual("Chris", result.Parameters["@sqlinq_3"]);
+        }
+
+        [TestMethod]
+        public void String_Replace_002()
+        {
+            IQueryable<Person> query = new SQLinq<Person>();
+            query = query.Where(x=>x.FirstName !=null).Where(x =>    x.IsEmployed || x.FirstName.Replace("Chr", "Cr") == "Chris");
+
+
+            var result = (SQLinqSelectResult)((ITypedSqlLinq) query).ToSQL();
+
+            Assert.AreEqual("[FirstName] IS NOT NULL AND ([Is_Employed] OR REPLACE([FirstName], @sqlinq_1, @sqlinq_2) = @sqlinq_3)", result.Where);
             Assert.AreEqual("Chr", result.Parameters["@sqlinq_1"]);
             Assert.AreEqual("Cr", result.Parameters["@sqlinq_2"]);
             Assert.AreEqual("Chris", result.Parameters["@sqlinq_3"]);
@@ -2389,7 +2475,7 @@ namespace SQLinqTest
 
             var result = (SQLinqSelectResult)query.ToSQL();
 
-            Assert.AreEqual("[Age] IN (@sqlinq_1)", result.Where);
+            Assert.AreEqual("[Age] IN @sqlinq_1", result.Where);
             Assert.AreEqual(1, result.Parameters.Count);
             Assert.IsTrue(test.SequenceEqual( (IEnumerable<int>)result.Parameters.ElementAt(0).Value));
             Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
@@ -2405,7 +2491,7 @@ namespace SQLinqTest
 
             var result = (SQLinqSelectResult)query.ToSQL();
 
-            Assert.AreEqual("[Age] IN (@sqlinq_1)", result.Where);
+            Assert.AreEqual("[Age] IN @sqlinq_1", result.Where);
             Assert.AreEqual(1, result.Parameters.Count);
             Assert.IsTrue(test.SequenceEqual((IEnumerable<int>)result.Parameters.ElementAt(0).Value));
             Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
@@ -2421,7 +2507,7 @@ namespace SQLinqTest
 
             var result = (SQLinqSelectResult)query.ToSQL();
 
-            Assert.AreEqual("[Age] IN (@sqlinq_1)", result.Where);
+            Assert.AreEqual("[Age] IN @sqlinq_1", result.Where);
             Assert.AreEqual(1, result.Parameters.Count);
             Assert.IsTrue(test.SequenceEqual((IEnumerable<int>)result.Parameters.ElementAt(0).Value));
             Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
@@ -2438,7 +2524,7 @@ namespace SQLinqTest
 
             var result = (SQLinqSelectResult)query.ToSQL();
 
-            Assert.AreEqual("[Age] IN (@sqlinq_1)", result.Where);
+            Assert.AreEqual("[Age] IN @sqlinq_1", result.Where);
             Assert.AreEqual(1, result.Parameters.Count);
             Assert.IsTrue(test.SequenceEqual((IEnumerable<int>)result.Parameters.ElementAt(0).Value));
             Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
@@ -2455,7 +2541,24 @@ namespace SQLinqTest
 
             var result = (SQLinqSelectResult)query.ToSQL();
 
-            Assert.AreEqual("[d].[Age] IN (@sqlinq_1)", result.Where);
+            Assert.AreEqual("[d].[Age] IN @sqlinq_1", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+            Assert.IsTrue(test.SequenceEqual((IEnumerable<int>)result.Parameters.ElementAt(0).Value));
+            Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
+        }
+
+        [TestMethod]
+        public void Enumerable_006()
+        {
+            var test = (new[] { 1, 2, 3 }).ToList();
+            IQueryable<Person> query = (new SQLinq<Person>());
+            query = query.Where(x => test.Contains(x.Age));
+
+            var result = ((ITypedSqlLinq)query).ToSQL();
+
+            var fullQuery = result.ToQuery();
+            //Assert.AreEqual("[Age] IN @sqlinq_1", result.Where);
+            Assert.AreEqual("SELECT [ID], [FirstName], [LastName], [Age], [Is_Employed] AS [IsEmployed], [ParentID], [Column With Spaces] AS [ColumnWithSpaces] FROM [Person] WHERE [Age] IN @sqlinq_1", fullQuery);
             Assert.AreEqual(1, result.Parameters.Count);
             Assert.IsTrue(test.SequenceEqual((IEnumerable<int>)result.Parameters.ElementAt(0).Value));
             Assert.AreEqual(test, result.Parameters["@sqlinq_1"]);
@@ -2525,6 +2628,85 @@ namespace SQLinqTest
             Assert.AreEqual("[Is_Employed] AS [IsEmployed]", result.Select[1]);
             Assert.AreEqual("[Age]", result.Select[2]);
             Assert.AreEqual("[Is_Employed] = @sqlinq_1 AND [Age] = @sqlinq_2", result.Where);
+            Assert.AreEqual(1, result.OrderBy.Length);
+            Assert.AreEqual("[FirstName]", result.OrderBy[0]);
+            Assert.AreEqual(2, result.Parameters.Count);
+        }
+
+        [TestMethod]
+        public void Queryable_007()
+        {
+            var person = new SQLinq<Person>();
+
+            var proxy = ProxyFilters.Apply(person);
+
+            var final = (ITypedSqlLinq)proxy.Where(x => x.IsEmployed == true).Where(x => x.Age >= 2).OrderBy(x => x.FirstName).Select(x => new { x.FirstName, x.IsEmployed, x.Age });
+
+            var result = (SQLinqSelectResult)final.ToSQL();
+
+            Assert.AreEqual(3, result.Select.Length);
+            Assert.AreEqual("[FirstName]", result.Select[0]);
+            Assert.AreEqual("[Is_Employed] AS [IsEmployed]", result.Select[1]);
+            Assert.AreEqual("[Age]", result.Select[2]);
+            Assert.AreEqual("[Is_Employed] = @sqlinq_1 AND [Age] >= @sqlinq_2", result.Where);
+            Assert.AreEqual(1, result.OrderBy.Length);
+            Assert.AreEqual("[FirstName]", result.OrderBy[0]);
+            Assert.AreEqual(2, result.Parameters.Count);
+        }
+        [TestMethod]
+        public void Queryable_007_Wrapped_Source_Obj()
+        {
+            var person = new SQLinq<Person>();
+
+            var proxy = ProxyFilters.Apply(person);
+
+            var proxyFilter = new Person() { Age = 2 };
+            var final = (ITypedSqlLinq)proxy.Where(x => x.Age >= proxyFilter.Age).Select(x => x.ID);
+
+            var result = (SQLinqSelectResult)final.ToSQL();
+
+            Assert.AreEqual(1, result.Select.Length);
+            Assert.AreEqual("[ID]", result.Select[0]);
+            Assert.AreEqual("[Age] >= @sqlinq_1", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+        }
+
+        [TestMethod]
+        public void Queryable_007_Wrapped_Source_Obj_Nullable()
+        {
+            var person = new SQLinq<Person>();
+
+            var proxy = ProxyFilters.Apply(person);
+
+            var proxyFilter = new Child() { Height = 2};
+            var final = (ITypedSqlLinq)proxy.Where(x => x.Age >= proxyFilter.Height).Select(x=>x.ID);
+
+            var result = (SQLinqSelectResult)final.ToSQL();
+
+            Assert.AreEqual(1, result.Select.Length);
+            Assert.AreEqual("[ID]", result.Select[0]);
+            Assert.AreEqual("[Age] >= @sqlinq_1", result.Where);
+            Assert.AreEqual(1, result.Parameters.Count);
+        }
+
+
+        [TestMethod]
+        public void Queryable_007_Wrapped_Source_Struct()
+        {
+            var person = new SQLinq<Person>();
+
+            var proxy = ProxyFilters.Apply(person);
+
+            var proxyFilter = new Range<int>() { Min = 2 };
+            var final = (ITypedSqlLinq)proxy.Where(x => x.IsEmployed == true).Where(x => x.Age >= proxyFilter.Min).OrderBy(x => x.FirstName).Select(x => new { x.FirstName, x.IsEmployed, x.Age });
+
+            var result = (SQLinqSelectResult)final.ToSQL();
+
+            Assert.AreEqual(3, result.Select.Length);
+            Assert.AreEqual("[FirstName]", result.Select[0]);
+            Assert.AreEqual("[Is_Employed] AS [IsEmployed]", result.Select[1]);
+            Assert.AreEqual("[Age]", result.Select[2]);
+            Assert.AreEqual("[Is_Employed] = @sqlinq_1 AND [Age] >= @sqlinq_2", result.Where);
             Assert.AreEqual(1, result.OrderBy.Length);
             Assert.AreEqual("[FirstName]", result.OrderBy[0]);
             Assert.AreEqual(2, result.Parameters.Count);
@@ -3603,5 +3785,23 @@ namespace SQLinqTest
         #endregion
     }
 
-  
+    
+    public struct Range<T> where T : struct
+    {
+        public Range(T? min, T? max) : this()
+        {
+            Min = min;
+            Max = max;
+        }
+        
+        public T? Min { get; set; }
+
+        public T? Max { get; set; }
+
+        public bool HasValues()
+        {
+            return Min.HasValue || Max.HasValue;
+        }
+    }
+
 }

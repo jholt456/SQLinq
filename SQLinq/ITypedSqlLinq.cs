@@ -9,5 +9,7 @@ namespace SQLinq
 
         List<ISQLinqTypedJoinExpression> JoinExpressions { get; }
         ITypedSqlLinq Parent { get; set; }
+        int? TakeRecords { get; }
+        int? SkipRecords { get; }
     }
 }

@@ -9,6 +9,7 @@ using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Data;
 using System.Data.SqlClient;
+using Dapper;
 
 namespace SQLinq.Dapper.Test
 {

@@ -6,5 +6,6 @@ namespace SQLinqTest
 {
     public class ParentPerson : Person
     {
+
     }
 }

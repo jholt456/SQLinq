@@ -9,6 +9,7 @@ namespace SQLinq
     public interface ISQLinqResult
     {
         IDictionary<string, object> Parameters { get; set; }
+       
         string ToQuery();
     }
 }

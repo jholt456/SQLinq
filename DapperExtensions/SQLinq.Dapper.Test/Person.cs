@@ -14,4 +14,10 @@ namespace SQLinq.Dapper.Test
         public string LastName { get; set; }
         public int? Age { get; set; }
     }
+
+    public class Child
+    {
+        public int Height { get; set; }
+        public int? HeightNullable { get; set; }
+    }
 }
